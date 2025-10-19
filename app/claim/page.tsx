@@ -42,7 +42,7 @@ function ClaimInner() {
 
   const canControl = useMemo(() => snap && snap.sessionId === sessionId, [snap, sessionId]);
 
-  async function onClaim() {
+  async function onSubmit() {
     setError("");
     const res = await fetch("/api/vending/claim", {
       method: "POST",
@@ -54,9 +54,7 @@ function ClaimInner() {
       setError(j.message || "Failed to claim. It might be busy." );
       return;
     }
-  }
-
-  async function onStartChat() {
+    // Immediately start chat on success
     await fetch("/api/vending/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -103,14 +101,13 @@ function ClaimInner() {
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
-          <button className="bg-black text-white rounded p-3" onClick={onClaim}>Claim</button>
+          <button className="bg-black text-white rounded p-3" onClick={onSubmit}>Start</button>
           {error && <div className="text-red-600 text-sm">{error}</div>}
         </div>
       )}
       {snap?.state === "CLAIMED" && canControl && (
         <div className="flex flex-col gap-3 w-full max-w-sm">
-          <div>Claimed as {snap.lockedByName}</div>
-          <button className="bg-blue-600 text-white rounded p-3" onClick={onStartChat}>Start Chat (placeholder)</button>
+          <div>Starting chat for {snap.lockedByName}…</div>
           <button className="bg-gray-800 text-white rounded p-3" onClick={onCancel}>Cancel</button>
         </div>
       )}
