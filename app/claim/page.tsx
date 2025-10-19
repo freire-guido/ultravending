@@ -70,14 +70,6 @@ function ClaimInner() {
     });
   }
 
-  async function onMarkDone() {
-    await fetch("/api/vending/dispense", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId, mark: "done" }),
-    });
-  }
-
   async function onCancel() {
     await fetch("/api/vending/cancel", {
       method: "POST",
@@ -96,7 +88,7 @@ function ClaimInner() {
       {snap?.state === "IDLE" && canControl && (
         <div className="flex flex-col gap-3 w-full max-w-sm">
           <input
-            className="border rounded p-3 text-black"
+            className="border border-white rounded p-3 text-white placeholder-gray-400 bg-transparent focus:outline-none focus:ring-2 focus:ring-white/60"
             placeholder="Your name"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -121,13 +113,11 @@ function ClaimInner() {
       {snap?.state === "DISPENSING" && canControl && (
         <div className="flex flex-col gap-3 w-full max-w-sm">
           <div>Dispensing (placeholder)...</div>
-          <button className="bg-green-700 text-white rounded p-3" onClick={onMarkDone}>Mark Done</button>
         </div>
       )}
       {snap?.state === "DONE" && canControl && (
         <div className="flex flex-col gap-3 w-full max-w-sm">
           <div>Done. Thank you!</div>
-          <button className="bg-black text-white rounded p-3" onClick={onCancel}>Finish</button>
         </div>
       )}
     </div>

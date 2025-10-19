@@ -82,6 +82,14 @@ export function dispense(sessionId: string): { ok: boolean; message?: string } {
   // Placeholder for physical dispense
   console.log("[PLACEHOLDER] Dispensing item for", store.lockedByName);
   touch();
+  // Auto-transition to DONE then back to IDLE after short delay
+  setTimeout(() => {
+    store.state = "DONE";
+    touch();
+    setTimeout(() => {
+      resetToIdle();
+    }, 2000);
+  }, 1000);
   return { ok: true };
 }
 
