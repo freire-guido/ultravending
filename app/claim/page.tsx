@@ -10,6 +10,7 @@ interface Snapshot {
   sessionId: string;
   lockedByName: string | null;
   updatedAt: number;
+  chatExpiresAt: number | null;
 }
 
 function ClaimInner() {
@@ -22,6 +23,7 @@ function ClaimInner() {
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const [input, setInput] = useState<string>("");
   const listRef = useRef<HTMLDivElement | null>(null);
+  const [nowMs, setNowMs] = useState<number>(Date.now());
 
   useEffect(() => {
     let stopped = false;
@@ -44,6 +46,29 @@ function ClaimInner() {
   }, []);
 
   const canControl = useMemo(() => snap && snap.sessionId === sessionId, [snap, sessionId]);
+
+  useEffect(() => {
+    if (!snap || snap.state !== "CHATTING" || !canControl || !snap.chatExpiresAt) return;
+    let raf = 0;
+    let mounted = true;
+    const tick = () => {
+      if (!mounted) return;
+      setNowMs(Date.now());
+      raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+    return () => {
+      mounted = false;
+      if (raf) window.cancelAnimationFrame(raf);
+    };
+  }, [snap?.state, snap?.chatExpiresAt, canControl]);
+
+  const progressRatio = useMemo(() => {
+    if (!snap || snap.state !== "CHATTING" || !snap.chatExpiresAt) return 0;
+    const remaining = Math.max(0, snap.chatExpiresAt - nowMs);
+    const ratio = remaining / 30000; // 30s TTL
+    return Math.max(0, Math.min(1, ratio));
+  }, [snap, nowMs]);
 
   async function onSubmit() {
     setError("");
@@ -108,6 +133,14 @@ function ClaimInner() {
 
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-center p-6 gap-6">
+      {snap?.state === "CHATTING" && canControl && (
+        <div className="fixed top-0 left-0 right-0 h-1 z-50" aria-hidden>
+          <div
+            className="h-full bg-white"
+            style={{ width: `${progressRatio * 100}%` }}
+          />
+        </div>
+      )}
       
       {!canControl && (
         <div className="text-red-600">This link is no longer valid or machine busy.</div>
