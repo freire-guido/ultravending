@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { startChat } from "@/lib/vendingState";
+import { startChat, canSendChat } from "@/lib/vendingState";
 import OpenAI from "openai";
 
 export async function POST(req: Request) {
@@ -32,6 +32,10 @@ export async function PUT(req: Request) {
   };
   if (!sessionId || !Array.isArray(messages)) {
     return NextResponse.json({ ok: false, message: "Missing sessionId or messages" }, { status: 400 });
+  }
+  const allowed = canSendChat(sessionId);
+  if (!allowed.ok) {
+    return NextResponse.json({ ok: false, message: allowed.message || "Chat expired" }, { status: 409 });
   }
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {

@@ -5,6 +5,7 @@ export interface VendingSnapshot {
   sessionId: string;
   lockedByName: string | null;
   updatedAt: number;
+  chatExpiresAt: number | null;
 }
 
 type VendingStore = VendingSnapshot;
@@ -14,18 +15,31 @@ function generateSessionId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+const CHAT_TTL_MS = 30_000;
+
 const store: VendingStore = {
   state: "IDLE",
   sessionId: generateSessionId(),
   lockedByName: null,
   updatedAt: Date.now(),
+  chatExpiresAt: null,
 };
 
 function touch(): void {
   store.updatedAt = Date.now();
 }
 
+function expireIfNeeded(): void {
+  if (store.state === "CHATTING" && store.chatExpiresAt !== null) {
+    const now = Date.now();
+    if (now >= store.chatExpiresAt) {
+      resetToIdle();
+    }
+  }
+}
+
 export function getSnapshot(): VendingSnapshot {
+  expireIfNeeded();
   return { ...store };
 }
 
@@ -43,6 +57,7 @@ export function regenerateSessionIfIdle(): string {
 }
 
 export function claim(sessionId: string, userName: string): { ok: boolean; message?: string } {
+  expireIfNeeded();
   if (store.state !== "IDLE") {
     return { ok: false, message: `Machine is busy in state ${store.state}` };
   }
@@ -56,26 +71,29 @@ export function claim(sessionId: string, userName: string): { ok: boolean; messa
 }
 
 export function startChat(sessionId: string): { ok: boolean; message?: string } {
+  expireIfNeeded();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   if (store.state !== "CLAIMED") return { ok: false, message: `Cannot start chat from ${store.state}` };
   store.state = "CHATTING";
-  // Placeholder for OpenAI chat bootstrap
-  console.log("[PLACEHOLDER] Starting OpenAI GPT-5 chat for", store.lockedByName);
+  store.chatExpiresAt = Date.now() + CHAT_TTL_MS;
   touch();
   return { ok: true };
 }
 
 export function cancel(sessionId: string): { ok: boolean; message?: string } {
+  expireIfNeeded();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   if (store.state === "IDLE") return { ok: true };
   store.state = "IDLE";
   store.lockedByName = null;
   store.sessionId = generateSessionId();
+  store.chatExpiresAt = null;
   touch();
   return { ok: true };
 }
 
 export function dispense(sessionId: string): { ok: boolean; message?: string } {
+  expireIfNeeded();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   if (store.state !== "CHATTING") return { ok: false, message: `Cannot dispense from ${store.state}` };
   store.state = "DISPENSING";
@@ -94,6 +112,7 @@ export function dispense(sessionId: string): { ok: boolean; message?: string } {
 }
 
 export function markDone(sessionId: string): { ok: boolean; message?: string } {
+  expireIfNeeded();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   if (store.state !== "DISPENSING") return { ok: false, message: `Cannot mark done from ${store.state}` };
   store.state = "DONE";
@@ -105,7 +124,15 @@ export function resetToIdle(): void {
   store.state = "IDLE";
   store.lockedByName = null;
   store.sessionId = generateSessionId();
+  store.chatExpiresAt = null;
   touch();
+}
+
+export function canSendChat(sessionId: string): { ok: boolean; message?: string } {
+  expireIfNeeded();
+  if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
+  if (store.state !== "CHATTING") return { ok: false, message: `Cannot chat from ${store.state}` };
+  return { ok: true };
 }
 
 
