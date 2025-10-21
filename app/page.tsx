@@ -10,12 +10,14 @@ interface Snapshot {
   sessionId: string;
   lockedByName: string | null;
   updatedAt: number;
+  chatExpiresAt?: number | null;
 }
 
 export default function Home() {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const lastSessionRef = useRef<string>("");
+  const [nowMs, setNowMs] = useState<number>(Date.now());
 
   useEffect(() => {
     let stopped = false;
@@ -55,9 +57,43 @@ export default function Home() {
     void gen();
   }, [claimUrl, snap?.sessionId]);
 
+  useEffect(() => {
+    if (!snap || snap.state !== "CHATTING" || !snap.chatExpiresAt) return;
+    let raf = 0;
+    let mounted = true;
+    const tick = () => {
+      if (!mounted) return;
+      setNowMs(Date.now());
+      raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+    return () => {
+      mounted = false;
+      if (raf) window.cancelAnimationFrame(raf);
+    };
+  }, [snap?.state, snap?.chatExpiresAt]);
+
+  const curtainRatio = useMemo(() => {
+    if (!snap || snap.state !== "CHATTING" || !snap.chatExpiresAt) return 0;
+    const remaining = Math.max(0, snap.chatExpiresAt - nowMs);
+    const ratio = 1 - Math.max(0, Math.min(1, remaining / 30000));
+    return ratio; // 0 => all white, 1 => all black
+  }, [snap, nowMs]);
+
   return (
-    <div className="min-h-screen w-full flex flex-col items-center justify-center bg-black text-white p-6 gap-6">
-      <div className="text-3xl font-bold">UltraVending</div>
+    <div className="relative min-h-screen w-full flex flex-col items-center justify-center bg-black text-white p-6 gap-6 overflow-hidden">
+      {/* White base background for chat */}
+      {snap?.state === "CHATTING" && (
+        <div className="absolute inset-0 bg-white" aria-hidden />
+      )}
+      {/* Right-to-left black curtain */}
+      {snap?.state === "CHATTING" && (
+        <div
+          className="absolute inset-y-0 right-0 bg-black transition-none"
+          style={{ width: `${curtainRatio * 100}%` }}
+          aria-hidden
+        />
+      )}
       {snap?.state === "IDLE" && (
         <div className="flex flex-col items-center gap-4">
           <div className="text-xl">Scan to start</div>
@@ -71,8 +107,10 @@ export default function Home() {
         </div>
       )}
       {snap && snap.state !== "IDLE" && (
-        <div className="flex flex-col items-center gap-2">
-          <div className="text-xl">{labelForState(snap)}</div>
+        <div className="relative flex flex-col items-center gap-2">
+          <div className="text-xl text-black">
+            {labelForState(snap)}
+          </div>
           <div className="text-gray-400">Session {snap.sessionId.slice(-6)}</div>
         </div>
       )}
