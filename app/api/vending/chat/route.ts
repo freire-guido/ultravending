@@ -42,7 +42,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: false, message: "Server missing OPENAI_API_KEY" }, { status: 500 });
   }
   const client = new OpenAI({ apiKey });
-  const model = process.env.OPENAI_MODEL || "gpt-5o-mini";
+  const model = process.env.OPENAI_MODEL || "gpt-5-mini";
   const promptId = process.env.PROMPT_ID;
   try {
     // Build Responses API request
@@ -58,7 +58,17 @@ export async function PUT(req: Request) {
         description: "Dispense the agreed products for the current session.",
         parameters: {
           type: "object",
-          properties: {},
+          properties: {
+            amount: {
+              type: "number",
+              description: "The price amount of the product being dispensed"
+            },
+            productName: {
+              type: "string",
+              description: "The name of the product being dispensed"
+            }
+          },
+          required: ["amount", "productName"],
           additionalProperties: false,
         },
       },
@@ -68,7 +78,17 @@ export async function PUT(req: Request) {
         description: "Collect payment for the agreed price of the product.",
         parameters: {
           type: "object",
-          properties: {},
+          properties: {
+            amount: {
+              type: "number",
+              description: "The price amount to charge for the product"
+            },
+            description: {
+              type: "string",
+              description: "Description of what the user is purchasing"
+            }
+          },
+          required: ["amount", "description"],
           additionalProperties: false,
         },
       }
@@ -105,13 +125,24 @@ export async function PUT(req: Request) {
         if (name === "dispense" && id) {
           // Pause timer during dispensing
           pauseChatTimer(sessionId);
+          
+          // Extract dispense parameters from function call
+          const dispenseArgs = args as { amount?: number; productName?: string } || {};
+          const amount = dispenseArgs.amount || 0;
+          const productName = dispenseArgs.productName || "Product";
+          
           const res = dispenseAction(sessionId);
-          userMessage = "Product dispensed successfully! Please collect your item.";
+          userMessage = `${productName} dispensed successfully! Please collect your item. Amount: $${amount}`;
         } else if (name === "payment" && id) {
           // Pause timer during payment processing
           pauseChatTimer(sessionId);
           
           try {
+            // Extract payment parameters from function call
+            const paymentArgs = args as { amount?: number; description?: string } || {};
+            const amount = paymentArgs.amount || 100; // Default to 100 if not provided
+            const description = paymentArgs.description || "Vending Machine Purchase"; // Default description
+            
             // Generate payment QR code
             const headers = new Headers(req.headers);
             const host = headers.get("x-forwarded-host") || headers.get("host") || "localhost:3000";
@@ -124,8 +155,8 @@ export async function PUT(req: Request) {
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                amount: 100, // Default amount - you might want to make this dynamic
-                description: "Vending Machine Purchase",
+                amount,
+                description,
                 sessionId,
               }),
             });
@@ -144,7 +175,7 @@ export async function PUT(req: Request) {
                 paymentExpiresAt: null, // Will be set by setPaymentInfo
               });
               
-              userMessage = `Payment QR code generated! Please scan the QR code to complete your payment. Amount: $${paymentData.data.amount}`;
+              userMessage = `Payment QR code generated! Please scan the QR code to complete your payment for "${description}". Amount: $${amount}`;
             } else {
               userMessage = "Payment system is temporarily unavailable. Please try again later.";
             }
