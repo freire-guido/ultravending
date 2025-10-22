@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { startChat, canSendChat } from "@/lib/vendingState";
+import { startChat, canSendChat, dispense as dispenseAction } from "@/lib/vendingState";
 import OpenAI from "openai";
 
 export async function POST(req: Request) {
@@ -43,19 +43,93 @@ export async function PUT(req: Request) {
   }
   const client = new OpenAI({ apiKey });
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const promptId = process.env.PROMPT_ID;
   try {
-    const completion = await client.chat.completions.create({
+    // Build Responses API request
+    const input = messages.map((m) => ({
+      role: m.role,
+      content: [{ type: "input_text", text: m.content }],
+    }));
+
+    const tools = [
+      {
+        type: "function",
+        name: "dispense",
+        description: "Dispense the agreed products for the current session.",
+        parameters: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+      },
+      {
+        type: "function",
+        name: "payment",
+        description: "Collect payment for the agreed price of the product.",
+        parameters: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+      }
+    ] as const;
+
+    const baseRequest: Record<string, unknown> = {
       model,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
-      temperature: 0.7,
-    });
-    const content = completion.choices?.[0]?.message?.content ?? "";
+      input,
+      tools,
+    };
+    if (promptId) {
+      // Use stored prompt as system instructions
+      (baseRequest as any).prompt = { id: promptId };
+    }
+
+    let response = await client.responses.create(baseRequest as any);
+
+    // If the model requested tools, fulfill and continue
+    const toolCalls = Array.isArray((response as any).output)
+      ? (response as any).output.filter((o: any) => o?.type === "tool_call")
+      : [];
+
+    if (toolCalls.length > 0) {
+      const tool_outputs: Array<{ tool_call_id: string; output: string }> = [];
+      for (const call of toolCalls) {
+        const name = call?.name as string | undefined;
+        const id = call?.id as string | undefined;
+        let args: unknown = undefined;
+        try {
+          args = call?.arguments ? JSON.parse(call.arguments as string) : {};
+        } catch {}
+        if (name === "dispense" && id) {
+          const res = dispenseAction(sessionId);
+          tool_outputs.push({ tool_call_id: id, output: JSON.stringify(res) });
+        }
+      }
+
+      if (tool_outputs.length > 0) {
+        response = await client.responses.create({
+          model,
+          input: (response as any).output,
+          tool_outputs,
+        } as any);
+      }
+    }
+
+    const content = (response as any).output_text || "";
     return NextResponse.json(
       { ok: true, message: { role: "assistant" as const, content } },
       { status: 200 }
     );
   } catch (error) {
-    return NextResponse.json({ ok: false, message: "Chat failed" }, { status: 500 });
+    const err: any = error;
+    // eslint-disable-next-line no-console
+    console.error("[OPENAI_ERROR]", err);
+    if (err?.error) {
+      // eslint-disable-next-line no-console
+      console.error("[OPENAI_ERROR.details]", err.error);
+    }
+    const details = err?.error?.message || err?.message || "Chat failed";
+    return NextResponse.json({ ok: false, message: details }, { status: 500 });
   }
 }
 
