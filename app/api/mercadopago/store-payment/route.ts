@@ -8,7 +8,7 @@ const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN!;
 const STORE_ID = "71045421";
 const POS_ID = "120213762";
 
-interface StorePaymentRequest {
+interface PaymentRequest {
   amount: number;
   description: string;
   sessionId: string;
@@ -16,7 +16,7 @@ interface StorePaymentRequest {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json() as StorePaymentRequest;
+    const body = await req.json() as PaymentRequest;
     const { amount, description, sessionId } = body;
 
     if (!amount || !description || !sessionId) {

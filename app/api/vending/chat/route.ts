@@ -149,7 +149,7 @@ export async function PUT(req: Request) {
             const proto = headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
             const baseUrl = `${proto}://${host}`;
             
-            const paymentResponse = await fetch(`${baseUrl}/api/mercadopago/store-payment`, {
+            const paymentResponse = await fetch(`${baseUrl}/api/mercadopago/payment`, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",

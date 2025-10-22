@@ -86,6 +86,8 @@ export async function POST(req: NextRequest) {
   // y despachar procesamiento asíncrono aparte si es pesado.
   // (Acá lo hacemos inline por simplicidad.)
   try {
+    console.log("Webhook received:", { dataId, xTopic, xRequestId });
+    
     if (dataId && (xTopic as string).toLowerCase().includes("payment")) {
       // Ejemplo: obtener estado del pago
       const resp = await fetch(`https://api.mercadopago.com/v1/payments/${dataId}`, {
@@ -120,6 +122,41 @@ export async function POST(req: NextRequest) {
           clearPaymentInfo(snapshot.sessionId);
           transitionToChatting(snapshot.sessionId);
           console.log("Payment failed for session:", snapshot.sessionId);
+        }
+      }
+    } else if (dataId && (xTopic as string).toLowerCase().includes("order")) {
+      // Handle order events (for QR payments)
+      const resp = await fetch(`https://api.mercadopago.com/v1/orders/${dataId}`, {
+        headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
+        cache: "no-store",
+      });
+      const order = await resp.json();
+
+      console.log("Order event", order.id, order.status);
+      
+      if (order.status === "paid") {
+        // Order paid - clear payment info and resume chat timer
+        const snapshot = getSnapshot();
+        if (snapshot.state === "CHATTING" && snapshot.paymentInfo.preferenceId === order.id) {
+          clearPaymentInfo(snapshot.sessionId);
+          resumeChatTimerAfterPayment(snapshot.sessionId);
+          console.log("Order paid for session:", snapshot.sessionId);
+        } else if (snapshot.state === "PAYMENT_PENDING") {
+          clearPaymentInfo(snapshot.sessionId);
+          transitionToChatting(snapshot.sessionId);
+          console.log("Order paid for session:", snapshot.sessionId);
+        }
+      } else if (order.status === "cancelled" || order.status === "expired") {
+        // Order cancelled/expired - clear payment info and resume chat timer
+        const snapshot = getSnapshot();
+        if (snapshot.state === "CHATTING" && snapshot.paymentInfo.preferenceId === order.id) {
+          clearPaymentInfo(snapshot.sessionId);
+          resumeChatTimerAfterPayment(snapshot.sessionId);
+          console.log("Order cancelled/expired for session:", snapshot.sessionId);
+        } else if (snapshot.state === "PAYMENT_PENDING") {
+          clearPaymentInfo(snapshot.sessionId);
+          transitionToChatting(snapshot.sessionId);
+          console.log("Order cancelled/expired for session:", snapshot.sessionId);
         }
       }
     }
