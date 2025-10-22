@@ -141,6 +141,7 @@ export async function PUT(req: Request) {
                 amount: paymentData.data.amount,
                 description: paymentData.data.description,
                 createdAt: null, // Will be set by setPaymentInfo
+                paymentExpiresAt: null, // Will be set by setPaymentInfo
               });
               
               userMessage = `Payment QR code generated! Please scan the QR code to complete your payment. Amount: $${paymentData.data.amount}`;
