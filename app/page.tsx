@@ -106,7 +106,7 @@ export default function Home() {
   const curtainRatio = useMemo(() => {
     if (!snap || snap.state !== "CHATTING" || !snap.chatExpiresAt) return 0;
     const remaining = Math.max(0, snap.chatExpiresAt - nowMs);
-    const ratio = 1 - Math.max(0, Math.min(1, remaining / 30000));
+    const ratio = 1 - Math.max(0, Math.min(1, remaining / 60000));
     return ratio; // 0 => all white, 1 => all black
   }, [snap, nowMs]);
 

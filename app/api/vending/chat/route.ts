@@ -42,7 +42,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: false, message: "Server missing OPENAI_API_KEY" }, { status: 500 });
   }
   const client = new OpenAI({ apiKey });
-  const model = process.env.OPENAI_MODEL || "gpt-5-mini";
+  const model = process.env.OPENAI_MODEL || "gpt-5-nano";
   const promptId = process.env.PROMPT_ID;
   try {
     // Build Responses API request

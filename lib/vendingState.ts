@@ -26,7 +26,7 @@ function generateSessionId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-const CHAT_TTL_MS = 30_000;
+const CHAT_TTL_MS = 60_000; // 60 seconds to match client progress bar
 const PAYMENT_TTL_MS = 60_000; // 1 minute
 
 const store: VendingStore = {
