@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { getSnapshot, clearPaymentInfo, transitionToChatting } from "@/lib/vendingState";
+import { getSnapshot, clearPaymentInfo, transitionToChatting, resumeChatTimerAfterPayment } from "@/lib/vendingState";
 
 // Asegurate de setearlas en Vercel
 const WEBHOOK_SECRET = process.env.MP_WEBHOOK_SECRET!;
@@ -98,17 +98,25 @@ export async function POST(req: NextRequest) {
       console.log("Payment event", payment.id, payment.status);
       
       if (payment.status === "approved") {
-        // Payment approved - clear payment info and allow dispensing
+        // Payment approved - clear payment info and resume chat timer
         const snapshot = getSnapshot();
-        if (snapshot.state === "PAYMENT_PENDING") {
+        if (snapshot.state === "CHATTING" && snapshot.paymentInfo.preferenceId) {
+          clearPaymentInfo(snapshot.sessionId);
+          resumeChatTimerAfterPayment(snapshot.sessionId);
+          console.log("Payment approved for session:", snapshot.sessionId);
+        } else if (snapshot.state === "PAYMENT_PENDING") {
           clearPaymentInfo(snapshot.sessionId);
           transitionToChatting(snapshot.sessionId);
           console.log("Payment approved for session:", snapshot.sessionId);
         }
       } else if (payment.status === "rejected" || payment.status === "cancelled") {
-        // Payment failed - clear payment info and return to chat
+        // Payment failed - clear payment info and resume chat timer
         const snapshot = getSnapshot();
-        if (snapshot.state === "PAYMENT_PENDING") {
+        if (snapshot.state === "CHATTING" && snapshot.paymentInfo.preferenceId) {
+          clearPaymentInfo(snapshot.sessionId);
+          resumeChatTimerAfterPayment(snapshot.sessionId);
+          console.log("Payment failed for session:", snapshot.sessionId);
+        } else if (snapshot.state === "PAYMENT_PENDING") {
           clearPaymentInfo(snapshot.sessionId);
           transitionToChatting(snapshot.sessionId);
           console.log("Payment failed for session:", snapshot.sessionId);

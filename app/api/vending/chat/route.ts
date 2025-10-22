@@ -134,7 +134,7 @@ export async function PUT(req: Request) {
           const res = dispenseAction(sessionId);
           userMessage = `${productName} dispensed successfully! Please collect your item. Amount: $${amount}`;
         } else if (name === "payment" && id) {
-          // Pause timer during payment processing
+          // Pause timer during payment so user doesn't run out of time
           pauseChatTimer(sessionId);
           
           try {
@@ -182,12 +182,14 @@ export async function PUT(req: Request) {
           } catch (error) {
             console.error("Payment QR generation failed:", error);
             userMessage = "Payment system is temporarily unavailable. Please try again later.";
+            // Resume timer if payment generation failed
+            resumeChatTimer(sessionId);
           }
           
-          // Resume timer after payment processing (simulate 2 second delay)
+          // Set a timeout to resume timer if payment takes too long (5 minutes)
           setTimeout(() => {
             resumeChatTimer(sessionId);
-          }, 2000);
+          }, 5 * 60 * 1000); // 5 minutes
         }
       }
     }

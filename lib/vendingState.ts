@@ -208,7 +208,8 @@ export function setPaymentInfo(sessionId: string, paymentInfo: PaymentInfo): { o
     createdAt: Date.now(),
     paymentExpiresAt: Date.now() + PAYMENT_TTL_MS
   };
-  store.state = "PAYMENT_PENDING";
+  // Keep state as CHATTING so chat remains visible
+  // store.state = "PAYMENT_PENDING"; // Removed this line
   touch();
   return { ok: true };
 }
@@ -239,9 +240,18 @@ export function transitionToChatting(sessionId: string): { ok: boolean; message?
   if (store.state !== "PAYMENT_PENDING") return { ok: false, message: `Cannot transition from ${store.state} to CHATTING` };
   
   store.state = "CHATTING";
-  // Reset chat timer
-  store.chatExpiresAt = Date.now() + CHAT_TTL_MS;
+  // Resume chat timer with remaining time
+  resumeChatTimer(sessionId);
   touch();
+  return { ok: true };
+}
+
+export function resumeChatTimerAfterPayment(sessionId: string): { ok: boolean; message?: string } {
+  if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
+  if (store.state !== "CHATTING") return { ok: false, message: `Cannot resume timer from ${store.state}` };
+  
+  // Resume the chat timer with remaining time
+  resumeChatTimer(sessionId);
   return { ok: true };
 }
 

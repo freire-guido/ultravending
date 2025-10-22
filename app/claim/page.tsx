@@ -3,7 +3,17 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
-type VendingStateType = "IDLE" | "CLAIMED" | "CHATTING" | "DISPENSING" | "DONE";
+type VendingStateType = "IDLE" | "CLAIMED" | "CHATTING" | "PAYMENT_PENDING" | "DISPENSING" | "DONE";
+
+interface PaymentInfo {
+  preferenceId: string | null;
+  qrCodeUrl: string | null;
+  qrCodeDataUrl: string | null;
+  amount: number | null;
+  description: string | null;
+  createdAt: number | null;
+  paymentExpiresAt: number | null;
+}
 
 interface Snapshot {
   state: VendingStateType;
@@ -11,6 +21,7 @@ interface Snapshot {
   lockedByName: string | null;
   updatedAt: number;
   chatExpiresAt: number | null;
+  paymentInfo: PaymentInfo;
 }
 
 function ClaimInner() {
@@ -48,25 +59,55 @@ function ClaimInner() {
   const canControl = useMemo(() => snap && snap.sessionId === sessionId, [snap, sessionId]);
 
   useEffect(() => {
-    if (!snap || snap.state !== "CHATTING" || !canControl || !snap.chatExpiresAt) return;
-    let raf = 0;
-    let mounted = true;
-    const tick = () => {
-      if (!mounted) return;
-      setNowMs(Date.now());
+    if (!snap || !canControl) return;
+    // Check for chat timer
+    if (snap.state === "CHATTING" && snap.chatExpiresAt) {
+      let raf = 0;
+      let mounted = true;
+      const tick = () => {
+        if (!mounted) return;
+        setNowMs(Date.now());
+        raf = window.requestAnimationFrame(tick);
+      };
       raf = window.requestAnimationFrame(tick);
-    };
-    raf = window.requestAnimationFrame(tick);
-    return () => {
-      mounted = false;
-      if (raf) window.cancelAnimationFrame(raf);
-    };
-  }, [snap?.state, snap?.chatExpiresAt, canControl]);
+      return () => {
+        mounted = false;
+        if (raf) window.cancelAnimationFrame(raf);
+      };
+    }
+    // Check for payment timer
+    if ((snap.state === "CHATTING" && snap.paymentInfo.qrCodeDataUrl) || snap.state === "PAYMENT_PENDING") {
+      if (snap.paymentInfo.paymentExpiresAt) {
+        let raf = 0;
+        let mounted = true;
+        const tick = () => {
+          if (!mounted) return;
+          setNowMs(Date.now());
+          raf = window.requestAnimationFrame(tick);
+        };
+        raf = window.requestAnimationFrame(tick);
+        return () => {
+          mounted = false;
+          if (raf) window.cancelAnimationFrame(raf);
+        };
+      }
+    }
+  }, [snap?.state, snap?.chatExpiresAt, snap?.paymentInfo.paymentExpiresAt, snap?.paymentInfo.qrCodeDataUrl, canControl]);
 
   const progressRatio = useMemo(() => {
     if (!snap || snap.state !== "CHATTING" || !snap.chatExpiresAt) return 0;
     const remaining = Math.max(0, snap.chatExpiresAt - nowMs);
     const ratio = remaining / 30000; // 30s TTL
+    return Math.max(0, Math.min(1, ratio));
+  }, [snap, nowMs]);
+
+  const paymentProgressRatio = useMemo(() => {
+    if (!snap || !snap.paymentInfo.paymentExpiresAt) return 0;
+    // Check for both CHATTING state with payment info and PAYMENT_PENDING state
+    if (snap.state !== "CHATTING" && snap.state !== "PAYMENT_PENDING") return 0;
+    if (snap.state === "CHATTING" && !snap.paymentInfo.qrCodeDataUrl) return 0;
+    const remaining = Math.max(0, snap.paymentInfo.paymentExpiresAt - nowMs);
+    const ratio = remaining / 60000; // 60s TTL
     return Math.max(0, Math.min(1, ratio));
   }, [snap, nowMs]);
 
@@ -133,11 +174,21 @@ function ClaimInner() {
 
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-center p-6 gap-6">
-      {snap?.state === "CHATTING" && canControl && (
+      {/* Chat progress bar */}
+      {snap?.state === "CHATTING" && canControl && !snap.paymentInfo.qrCodeDataUrl && (
         <div className="fixed top-0 left-0 right-0 h-1 z-50" aria-hidden>
           <div
             className="h-full bg-white"
             style={{ width: `${progressRatio * 100}%` }}
+          />
+        </div>
+      )}
+      {/* Payment progress bar */}
+      {((snap?.state === "CHATTING" && snap.paymentInfo.qrCodeDataUrl) || snap?.state === "PAYMENT_PENDING") && canControl && (
+        <div className="fixed top-0 left-0 right-0 h-1 z-50" aria-hidden>
+          <div
+            className="h-full bg-white"
+            style={{ width: `${paymentProgressRatio * 100}%` }}
           />
         </div>
       )}
