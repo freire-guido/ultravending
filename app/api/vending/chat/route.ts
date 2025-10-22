@@ -81,14 +81,15 @@ export async function PUT(req: Request) {
     };
     if (promptId) {
       // Use stored prompt as system instructions
-      (baseRequest as any).prompt = { id: promptId };
+      (baseRequest as Record<string, unknown>).prompt = { id: promptId };
     }
 
-    let response = await client.responses.create(baseRequest as any);
+    const response = await client.responses.create(baseRequest as unknown as Parameters<typeof client.responses.create>[0]);
 
     // If the model requested tools, fulfill and continue
-    const toolCalls = Array.isArray((response as any).output)
-      ? (response as any).output.filter((o: any) => o?.type === "function_call")
+    const responseOutput = (response as { output?: unknown }).output;
+    const toolCalls = Array.isArray(responseOutput)
+      ? responseOutput.filter((o: { type?: string }) => o?.type === "function_call")
       : [];
 
     let userMessage = "";
@@ -119,13 +120,13 @@ export async function PUT(req: Request) {
       }
     }
 
-    const content = (response as any).output_text || userMessage;
+    const content = (response as { output_text?: string }).output_text || userMessage;
     return NextResponse.json(
       { ok: true, message: { role: "assistant" as const, content } },
       { status: 200 }
     );
   } catch (error) {
-    const err: any = error;
+    const err = error as { error?: { message?: string }; message?: string };
     // eslint-disable-next-line no-console
     console.error("[OPENAI_ERROR]", err);
     if (err?.error) {
