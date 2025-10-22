@@ -7,6 +7,7 @@ export interface PaymentInfo {
   amount: number | null;
   description: string | null;
   createdAt: number | null;
+  paymentExpiresAt: number | null;
 }
 
 export interface VendingSnapshot {
@@ -26,6 +27,7 @@ function generateSessionId(): string {
 }
 
 const CHAT_TTL_MS = 30_000;
+const PAYMENT_TTL_MS = 60_000; // 1 minute
 
 const store: VendingStore = {
   state: "IDLE",
@@ -40,6 +42,7 @@ const store: VendingStore = {
     amount: null,
     description: null,
     createdAt: null,
+    paymentExpiresAt: null,
   },
 };
 
@@ -48,10 +51,21 @@ function touch(): void {
 }
 
 function expireIfNeeded(): void {
+  const now = Date.now();
+  
+  // Check chat expiration
   if (store.state === "CHATTING" && store.chatExpiresAt !== null) {
-    const now = Date.now();
     if (now >= store.chatExpiresAt) {
       resetToIdle();
+      return;
+    }
+  }
+  
+  // Check payment expiration
+  if (store.state === "PAYMENT_PENDING" && store.paymentInfo.paymentExpiresAt !== null) {
+    if (now >= store.paymentInfo.paymentExpiresAt) {
+      resetToIdle();
+      return;
     }
   }
 }
@@ -150,6 +164,7 @@ export function resetToIdle(): void {
     amount: null,
     description: null,
     createdAt: null,
+    paymentExpiresAt: null,
   };
   touch();
 }
@@ -188,7 +203,11 @@ export function setPaymentInfo(sessionId: string, paymentInfo: PaymentInfo): { o
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   if (store.state !== "CHATTING") return { ok: false, message: `Cannot set payment info from ${store.state}` };
   
-  store.paymentInfo = { ...paymentInfo, createdAt: Date.now() };
+  store.paymentInfo = { 
+    ...paymentInfo, 
+    createdAt: Date.now(),
+    paymentExpiresAt: Date.now() + PAYMENT_TTL_MS
+  };
   store.state = "PAYMENT_PENDING";
   touch();
   return { ok: true };
@@ -204,6 +223,7 @@ export function clearPaymentInfo(sessionId: string): { ok: boolean; message?: st
     amount: null,
     description: null,
     createdAt: null,
+    paymentExpiresAt: null,
   };
   touch();
   return { ok: true };

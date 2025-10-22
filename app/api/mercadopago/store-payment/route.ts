@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import QRCode from "qrcode";
-import { getSnapshot, setPaymentInfo, clearPaymentInfo, transitionToChatting } from "@/lib/vendingState";
+import { getSnapshot, setPaymentInfo } from "@/lib/vendingState";
 
 const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN!;
 
@@ -119,6 +119,7 @@ export async function POST(req: NextRequest) {
       amount,
       description,
       createdAt: Date.now(),
+      paymentExpiresAt: null, // Will be set by setPaymentInfo
     };
 
     // Establecer la información de pago y cambiar el estado

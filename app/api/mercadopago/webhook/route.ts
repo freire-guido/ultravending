@@ -57,13 +57,13 @@ export async function POST(req: NextRequest) {
   const url = new URL(req.url);
   const queryId = url.searchParams.get("id") || url.searchParams.get("data.id");
 
-  let body: any = {};
+  let body: Record<string, unknown> = {};
   try { body = raw ? JSON.parse(raw) : {}; } catch { /* ignorar */ }
 
   // dataId heurístico: query → body.data.id → body.id
   const dataId: string | null =
     (queryId as string) ??
-    (body?.data?.id as string) ??
+    ((body?.data as Record<string, unknown>)?.id as string) ??
     (body?.id as string) ??
     null;
 
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   // y despachar procesamiento asíncrono aparte si es pesado.
   // (Acá lo hacemos inline por simplicidad.)
   try {
-    if (dataId && xTopic.toLowerCase().includes("payment")) {
+    if (dataId && (xTopic as string).toLowerCase().includes("payment")) {
       // Ejemplo: obtener estado del pago
       const resp = await fetch(`https://api.mercadopago.com/v1/payments/${dataId}`, {
         headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },

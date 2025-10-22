@@ -125,7 +125,7 @@ export async function PUT(req: Request) {
               },
               body: JSON.stringify({
                 amount: 100, // Default amount - you might want to make this dynamic
-                description: "Vending Machine Purchase - Sucursal Exactas",
+                description: "Vending Machine Purchase",
                 sessionId,
               }),
             });

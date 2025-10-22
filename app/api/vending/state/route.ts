@@ -28,10 +28,6 @@ export async function GET(req: Request) {
               }
             }
           }
-          if (addrs.length) {
-            // eslint-disable-next-line no-console
-            console.log("[DEBUG] Network URLs:", addrs.join(" \n - "));
-          }
         } catch {}
         lastLogTs = now;
       }
