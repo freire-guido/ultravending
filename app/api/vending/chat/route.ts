@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { startChat, canSendChat, dispense as dispenseAction } from "@/lib/vendingState";
+import { startChat, canSendChat, dispense as dispenseAction, pauseChatTimer, resumeChatTimer } from "@/lib/vendingState";
 import OpenAI from "openai";
 
 export async function POST(req: Request) {
@@ -48,7 +48,7 @@ export async function PUT(req: Request) {
     // Build Responses API request
     const input = messages.map((m) => ({
       role: m.role,
-      content: [{ type: "input_text", text: m.content }],
+      content: [{ type: m.role === "assistant" ? "output_text" : "input_text", text: m.content }],
     }));
 
     const tools = [
@@ -88,34 +88,38 @@ export async function PUT(req: Request) {
 
     // If the model requested tools, fulfill and continue
     const toolCalls = Array.isArray((response as any).output)
-      ? (response as any).output.filter((o: any) => o?.type === "tool_call")
+      ? (response as any).output.filter((o: any) => o?.type === "function_call")
       : [];
 
+    let userMessage = "";
     if (toolCalls.length > 0) {
-      const tool_outputs: Array<{ tool_call_id: string; output: string }> = [];
       for (const call of toolCalls) {
         const name = call?.name as string | undefined;
-        const id = call?.id as string | undefined;
+        const id = call?.call_id as string | undefined;
         let args: unknown = undefined;
         try {
           args = call?.arguments ? JSON.parse(call.arguments as string) : {};
         } catch {}
+        
         if (name === "dispense" && id) {
+          // Pause timer during dispensing
+          pauseChatTimer(sessionId);
           const res = dispenseAction(sessionId);
-          tool_outputs.push({ tool_call_id: id, output: JSON.stringify(res) });
+          userMessage = "Product dispensed successfully! Please collect your item.";
+        } else if (name === "payment" && id) {
+          // Pause timer during payment processing
+          pauseChatTimer(sessionId);
+          userMessage = "Payment processed successfully! Your transaction is complete.";
+          
+          // Resume timer after payment processing (simulate 2 second delay)
+          setTimeout(() => {
+            resumeChatTimer(sessionId);
+          }, 2000);
         }
-      }
-
-      if (tool_outputs.length > 0) {
-        response = await client.responses.create({
-          model,
-          input: (response as any).output,
-          tool_outputs,
-        } as any);
       }
     }
 
-    const content = (response as any).output_text || "";
+    const content = (response as any).output_text || userMessage;
     return NextResponse.json(
       { ok: true, message: { role: "assistant" as const, content } },
       { status: 200 }

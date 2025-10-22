@@ -135,4 +135,27 @@ export function canSendChat(sessionId: string): { ok: boolean; message?: string 
   return { ok: true };
 }
 
+// Simple timer pause/resume for chat operations
+let pausedTimeRemaining: number | null = null;
+
+export function pauseChatTimer(sessionId: string): { ok: boolean; message?: string } {
+  if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
+  if (store.state !== "CHATTING") return { ok: false, message: `Cannot pause timer from ${store.state}` };
+  if (store.chatExpiresAt !== null) {
+    pausedTimeRemaining = Math.max(0, store.chatExpiresAt - Date.now());
+    store.chatExpiresAt = null; // Pause by setting to null
+  }
+  return { ok: true };
+}
+
+export function resumeChatTimer(sessionId: string): { ok: boolean; message?: string } {
+  if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
+  if (store.state !== "CHATTING") return { ok: false, message: `Cannot resume timer from ${store.state}` };
+  if (pausedTimeRemaining !== null) {
+    store.chatExpiresAt = Date.now() + pausedTimeRemaining;
+    pausedTimeRemaining = null;
+  }
+  return { ok: true };
+}
+
 
