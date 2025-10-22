@@ -3,7 +3,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
 
-type VendingStateType = "IDLE" | "CLAIMED" | "CHATTING" | "DISPENSING" | "DONE";
+type VendingStateType = "IDLE" | "CLAIMED" | "CHATTING" | "PAYMENT_PENDING" | "DISPENSING" | "DONE";
+
+interface PaymentInfo {
+  preferenceId: string | null;
+  qrCodeUrl: string | null;
+  qrCodeDataUrl: string | null;
+  amount: number | null;
+  description: string | null;
+  createdAt: number | null;
+}
 
 interface Snapshot {
   state: VendingStateType;
@@ -11,6 +20,7 @@ interface Snapshot {
   lockedByName: string | null;
   updatedAt: number;
   chatExpiresAt?: number | null;
+  paymentInfo: PaymentInfo;
 }
 
 export default function Home() {
@@ -106,7 +116,28 @@ export default function Home() {
           <div className="text-xs text-gray-400">Session: {snap.sessionId.slice(-6)}</div>
         </div>
       )}
-      {snap && snap.state !== "IDLE" && (
+      {snap?.state === "PAYMENT_PENDING" && (
+        <div className="flex flex-col items-center gap-4">
+          <div className="text-xl">Payment Required</div>
+          <div className="text-lg">Amount: ${snap.paymentInfo.amount}</div>
+          <div className="text-sm text-gray-300">{snap.paymentInfo.description}</div>
+          {snap.paymentInfo.qrCodeDataUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img 
+              src={snap.paymentInfo.qrCodeDataUrl} 
+              alt="Payment QR Code" 
+              className="w-[320px] h-[320px] bg-white p-2 rounded" 
+            />
+          ) : (
+            <div className="w-[320px] h-[320px] bg-white flex items-center justify-center">
+              <div className="text-black">Generating QR...</div>
+            </div>
+          )}
+          <div className="text-xs text-gray-400">Session: {snap.sessionId.slice(-6)}</div>
+          <div className="text-sm text-gray-300">Scan with Mercado Pago app</div>
+        </div>
+      )}
+      {snap && snap.state !== "IDLE" && snap.state !== "PAYMENT_PENDING" && (
         <div className="relative flex flex-col items-center gap-2">
           <div className="text-xl text-black">
             {labelForState(snap)}
@@ -124,6 +155,8 @@ function labelForState(s: Snapshot): string {
       return `Claimed by ${s.lockedByName ?? "unknown"}`;
     case "CHATTING":
       return `Chatting with ${s.lockedByName ?? "user"}`;
+    case "PAYMENT_PENDING":
+      return `Payment pending for ${s.lockedByName ?? "user"}`;
     case "DISPENSING":
       return `Dispensing for ${s.lockedByName ?? "user"}`;
     case "DONE":

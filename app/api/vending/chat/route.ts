@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { startChat, canSendChat, dispense as dispenseAction, pauseChatTimer, resumeChatTimer } from "@/lib/vendingState";
+import { startChat, canSendChat, dispense as dispenseAction, pauseChatTimer, resumeChatTimer, setPaymentInfo } from "@/lib/vendingState";
 import OpenAI from "openai";
 
 export async function POST(req: Request) {
@@ -110,7 +110,47 @@ export async function PUT(req: Request) {
         } else if (name === "payment" && id) {
           // Pause timer during payment processing
           pauseChatTimer(sessionId);
-          userMessage = "Payment processed successfully! Your transaction is complete.";
+          
+          try {
+            // Generate payment QR code
+            const headers = new Headers(req.headers);
+            const host = headers.get("x-forwarded-host") || headers.get("host") || "localhost:3000";
+            const proto = headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
+            const baseUrl = `${proto}://${host}`;
+            
+            const paymentResponse = await fetch(`${baseUrl}/api/mercadopago/store-payment`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                amount: 100, // Default amount - you might want to make this dynamic
+                description: "Vending Machine Purchase - Sucursal Exactas",
+                sessionId,
+              }),
+            });
+            
+            if (paymentResponse.ok) {
+              const paymentData = await paymentResponse.json();
+              
+              // Store payment info in state
+              setPaymentInfo(sessionId, {
+                preferenceId: paymentData.data.preferenceId,
+                qrCodeUrl: paymentData.data.qrCodeUrl,
+                qrCodeDataUrl: paymentData.data.qrCodeDataUrl,
+                amount: paymentData.data.amount,
+                description: paymentData.data.description,
+                createdAt: null, // Will be set by setPaymentInfo
+              });
+              
+              userMessage = `Payment QR code generated! Please scan the QR code to complete your payment. Amount: $${paymentData.data.amount}`;
+            } else {
+              userMessage = "Payment system is temporarily unavailable. Please try again later.";
+            }
+          } catch (error) {
+            console.error("Payment QR generation failed:", error);
+            userMessage = "Payment system is temporarily unavailable. Please try again later.";
+          }
           
           // Resume timer after payment processing (simulate 2 second delay)
           setTimeout(() => {

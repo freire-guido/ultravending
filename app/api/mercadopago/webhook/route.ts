@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { getSnapshot, clearPaymentInfo, transitionToChatting } from "@/lib/vendingState";
 
 // Asegurate de setearlas en Vercel
 const WEBHOOK_SECRET = process.env.MP_WEBHOOK_SECRET!;
@@ -93,10 +94,26 @@ export async function POST(req: NextRequest) {
       });
       const payment = await resp.json();
 
-      // TODO: actualizá tu BD/orden según payment.status, etc.
-      // e.g., "approved", "rejected", "pending"
-      // await updateOrder(payment);
+      // Handle payment status updates
       console.log("Payment event", payment.id, payment.status);
+      
+      if (payment.status === "approved") {
+        // Payment approved - clear payment info and allow dispensing
+        const snapshot = getSnapshot();
+        if (snapshot.state === "PAYMENT_PENDING") {
+          clearPaymentInfo(snapshot.sessionId);
+          transitionToChatting(snapshot.sessionId);
+          console.log("Payment approved for session:", snapshot.sessionId);
+        }
+      } else if (payment.status === "rejected" || payment.status === "cancelled") {
+        // Payment failed - clear payment info and return to chat
+        const snapshot = getSnapshot();
+        if (snapshot.state === "PAYMENT_PENDING") {
+          clearPaymentInfo(snapshot.sessionId);
+          transitionToChatting(snapshot.sessionId);
+          console.log("Payment failed for session:", snapshot.sessionId);
+        }
+      }
     }
     // Manejá otros tópicos: merchant_order, chargebacks, subscriptions, etc.
   } catch (e) {

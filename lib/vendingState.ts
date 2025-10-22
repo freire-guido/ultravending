@@ -1,4 +1,13 @@
-export type VendingStateType = "IDLE" | "CLAIMED" | "CHATTING" | "DISPENSING" | "DONE";
+export type VendingStateType = "IDLE" | "CLAIMED" | "CHATTING" | "PAYMENT_PENDING" | "DISPENSING" | "DONE";
+
+export interface PaymentInfo {
+  preferenceId: string | null;
+  qrCodeUrl: string | null;
+  qrCodeDataUrl: string | null;
+  amount: number | null;
+  description: string | null;
+  createdAt: number | null;
+}
 
 export interface VendingSnapshot {
   state: VendingStateType;
@@ -6,6 +15,7 @@ export interface VendingSnapshot {
   lockedByName: string | null;
   updatedAt: number;
   chatExpiresAt: number | null;
+  paymentInfo: PaymentInfo;
 }
 
 type VendingStore = VendingSnapshot;
@@ -23,6 +33,14 @@ const store: VendingStore = {
   lockedByName: null,
   updatedAt: Date.now(),
   chatExpiresAt: null,
+  paymentInfo: {
+    preferenceId: null,
+    qrCodeUrl: null,
+    qrCodeDataUrl: null,
+    amount: null,
+    description: null,
+    createdAt: null,
+  },
 };
 
 function touch(): void {
@@ -125,6 +143,14 @@ export function resetToIdle(): void {
   store.lockedByName = null;
   store.sessionId = generateSessionId();
   store.chatExpiresAt = null;
+  store.paymentInfo = {
+    preferenceId: null,
+    qrCodeUrl: null,
+    qrCodeDataUrl: null,
+    amount: null,
+    description: null,
+    createdAt: null,
+  };
   touch();
 }
 
@@ -155,6 +181,47 @@ export function resumeChatTimer(sessionId: string): { ok: boolean; message?: str
     store.chatExpiresAt = Date.now() + pausedTimeRemaining;
     pausedTimeRemaining = null;
   }
+  return { ok: true };
+}
+
+export function setPaymentInfo(sessionId: string, paymentInfo: PaymentInfo): { ok: boolean; message?: string } {
+  if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
+  if (store.state !== "CHATTING") return { ok: false, message: `Cannot set payment info from ${store.state}` };
+  
+  store.paymentInfo = { ...paymentInfo, createdAt: Date.now() };
+  store.state = "PAYMENT_PENDING";
+  touch();
+  return { ok: true };
+}
+
+export function clearPaymentInfo(sessionId: string): { ok: boolean; message?: string } {
+  if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
+  
+  store.paymentInfo = {
+    preferenceId: null,
+    qrCodeUrl: null,
+    qrCodeDataUrl: null,
+    amount: null,
+    description: null,
+    createdAt: null,
+  };
+  touch();
+  return { ok: true };
+}
+
+export function getPaymentInfo(sessionId: string): { ok: boolean; paymentInfo?: PaymentInfo; message?: string } {
+  if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
+  return { ok: true, paymentInfo: store.paymentInfo };
+}
+
+export function transitionToChatting(sessionId: string): { ok: boolean; message?: string } {
+  if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
+  if (store.state !== "PAYMENT_PENDING") return { ok: false, message: `Cannot transition from ${store.state} to CHATTING` };
+  
+  store.state = "CHATTING";
+  // Reset chat timer
+  store.chatExpiresAt = Date.now() + CHAT_TTL_MS;
+  touch();
   return { ok: true };
 }
 
