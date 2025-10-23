@@ -88,43 +88,7 @@ export async function POST(req: NextRequest) {
   try {
     console.log("Webhook received:", { dataId, xTopic, xRequestId });
     
-    if (dataId && (xTopic as string).toLowerCase().includes("payment")) {
-      // Ejemplo: obtener estado del pago
-      const resp = await fetch(`https://api.mercadopago.com/v1/payments/${dataId}`, {
-        headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
-        cache: "no-store",
-      });
-      const payment = await resp.json();
-
-      // Handle payment status updates
-      console.log("Payment event", payment.id, payment.status);
-      
-      if (payment.status === "approved") {
-        // Payment approved - clear payment info and resume chat timer
-        const snapshot = getSnapshot();
-        if (snapshot.state === "CHATTING" && snapshot.paymentInfo.preferenceId) {
-          clearPaymentInfo(snapshot.sessionId);
-          resumeChatTimerAfterPayment(snapshot.sessionId);
-          console.log("Payment approved for session:", snapshot.sessionId);
-        } else if (snapshot.state === "PAYMENT_PENDING") {
-          clearPaymentInfo(snapshot.sessionId);
-          transitionToChatting(snapshot.sessionId);
-          console.log("Payment approved for session:", snapshot.sessionId);
-        }
-      } else if (payment.status === "rejected" || payment.status === "cancelled") {
-        // Payment failed - clear payment info and resume chat timer
-        const snapshot = getSnapshot();
-        if (snapshot.state === "CHATTING" && snapshot.paymentInfo.preferenceId) {
-          clearPaymentInfo(snapshot.sessionId);
-          resumeChatTimerAfterPayment(snapshot.sessionId);
-          console.log("Payment failed for session:", snapshot.sessionId);
-        } else if (snapshot.state === "PAYMENT_PENDING") {
-          clearPaymentInfo(snapshot.sessionId);
-          transitionToChatting(snapshot.sessionId);
-          console.log("Payment failed for session:", snapshot.sessionId);
-        }
-      }
-    } else if (dataId && (xTopic as string).toLowerCase().includes("order")) {
+    if (dataId && (xTopic as string).toLowerCase().includes("order")) {
       // Handle order events (for QR payments)
       const resp = await fetch(`https://api.mercadopago.com/v1/orders/${dataId}`, {
         headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
@@ -157,6 +121,39 @@ export async function POST(req: NextRequest) {
           clearPaymentInfo(snapshot.sessionId);
           transitionToChatting(snapshot.sessionId);
           console.log("Order cancelled/expired for session:", snapshot.sessionId);
+        }
+      }
+    } else if (dataId && (xTopic as string).toLowerCase().includes("payment")) {
+      // Handle payment events (fallback for other payment methods)
+      const resp = await fetch(`https://api.mercadopago.com/v1/payments/${dataId}`, {
+        headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
+        cache: "no-store",
+      });
+      const payment = await resp.json();
+
+      console.log("Payment event", payment.id, payment.status);
+      
+      if (payment.status === "approved") {
+        const snapshot = getSnapshot();
+        if (snapshot.state === "CHATTING" && snapshot.paymentInfo.preferenceId) {
+          clearPaymentInfo(snapshot.sessionId);
+          resumeChatTimerAfterPayment(snapshot.sessionId);
+          console.log("Payment approved for session:", snapshot.sessionId);
+        } else if (snapshot.state === "PAYMENT_PENDING") {
+          clearPaymentInfo(snapshot.sessionId);
+          transitionToChatting(snapshot.sessionId);
+          console.log("Payment approved for session:", snapshot.sessionId);
+        }
+      } else if (payment.status === "rejected" || payment.status === "cancelled") {
+        const snapshot = getSnapshot();
+        if (snapshot.state === "CHATTING" && snapshot.paymentInfo.preferenceId) {
+          clearPaymentInfo(snapshot.sessionId);
+          resumeChatTimerAfterPayment(snapshot.sessionId);
+          console.log("Payment failed for session:", snapshot.sessionId);
+        } else if (snapshot.state === "PAYMENT_PENDING") {
+          clearPaymentInfo(snapshot.sessionId);
+          transitionToChatting(snapshot.sessionId);
+          console.log("Payment failed for session:", snapshot.sessionId);
         }
       }
     }

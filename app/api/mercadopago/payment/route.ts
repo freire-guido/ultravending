@@ -6,7 +6,7 @@ const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN!;
 
 // Datos de la sucursal y POS creados
 const STORE_ID = "71045421";
-const POS_ID = "120213762";
+const POS_ID = "PABE1";
 
 interface PaymentRequest {
   amount: number;
@@ -49,56 +49,73 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Crear preference de MercadoPago para generar QR dinámico
-    const preferenceData = {
+    // Crear order de MercadoPago para QR (pagos presenciales)
+    const orderData = {
+      type: "qr",
+      total_amount: amount.toString(),
+      description: description,
+      external_reference: sessionId,
+      expiration_time: "PT15M", // 15 minutos de expiración
+      config: {
+        qr: {
+          external_pos_id: POS_ID,
+          mode: "dynamic"
+        }
+      },
+      transactions: {
+        payments: [
+          {
+            amount: amount.toString()
+          }
+        ]
+      },
       items: [
         {
           title: description,
+          unit_price: amount.toString(),
           quantity: 1,
-          unit_price: amount,
-          currency_id: "ARS",
-        },
-      ],
-      back_urls: {
-        success: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/claim?sessionId=${sessionId}&status=success`,
-        failure: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/claim?sessionId=${sessionId}&status=failure`,
-        pending: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/claim?sessionId=${sessionId}&status=pending`,
-      },
-      external_reference: sessionId,
-      notification_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/mercadopago/webhook`,
+          unit_measure: "unit"
+        }
+      ]
     };
 
-    // Crear preference en MercadoPago
-    const preferenceResponse = await fetch("https://api.mercadopago.com/checkout/preferences", {
+    // Generar idempotency key único
+    const idempotencyKey = `${sessionId}-${Date.now()}`;
+
+    // Crear order en MercadoPago
+    const orderResponse = await fetch("https://api.mercadopago.com/v1/orders", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${MP_ACCESS_TOKEN}`,
         "Content-Type": "application/json",
+        "X-Idempotency-Key": idempotencyKey,
       },
-      body: JSON.stringify(preferenceData),
+      body: JSON.stringify(orderData),
     });
 
-    if (!preferenceResponse.ok) {
-      const error = await preferenceResponse.text();
-      console.error("MercadoPago preference creation failed:", error);
-      console.error("Response status:", preferenceResponse.status);
-      console.error("Response headers:", Object.fromEntries(preferenceResponse.headers.entries()));
+    if (!orderResponse.ok) {
+      const error = await orderResponse.text();
+      console.error("MercadoPago order creation failed:", error);
+      console.error("Response status:", orderResponse.status);
+      console.error("Response headers:", Object.fromEntries(orderResponse.headers.entries()));
       return NextResponse.json(
-        { ok: false, message: `Failed to create payment preference: ${error}` },
+        { ok: false, message: `Failed to create payment order: ${error}` },
         { status: 500 }
       );
     }
 
-    const preference = await preferenceResponse.json();
-    console.log("MercadoPago preference response:", JSON.stringify(preference, null, 2));
+    const order = await orderResponse.json();
+    console.log("MercadoPago order response:", JSON.stringify(order, null, 2));
     
-    // Para credenciales de prueba, usar el init_point como QR
-    let qrCodeUrl = preference.qr_code || preference.init_point || preference.sandbox_init_point;
-
-    // Si no hay QR code, usar el init_point como fallback
+    // Obtener el QR data del order
+    let qrCodeUrl = order.type_response?.qr_data;
+    
     if (!qrCodeUrl) {
-      console.log("No QR code from preference, using init_point as fallback");
-      qrCodeUrl = preference.init_point || preference.sandbox_init_point;
+      console.error("No QR data in order response:", order);
+      return NextResponse.json(
+        { ok: false, message: "No QR data received from MercadoPago" },
+        { status: 500 }
+      );
     }
 
     // Generar QR code image data
@@ -113,7 +130,7 @@ export async function POST(req: NextRequest) {
 
     // Configurar la información de pago
     const paymentInfo = {
-      preferenceId: preference.id,
+      preferenceId: order.id, // Usar order.id en lugar de preference.id
       qrCodeUrl,
       qrCodeDataUrl,
       amount,
@@ -137,8 +154,7 @@ export async function POST(req: NextRequest) {
       data: {
         qrCodeUrl,
         qrCodeDataUrl,
-        preferenceId: preference.id,
-        initPoint: preference.init_point,
+        orderId: order.id,
         sessionId,
         amount,
         description,
