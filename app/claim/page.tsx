@@ -128,22 +128,7 @@ function ClaimInner() {
     });
   }
 
-  async function onDispense() {
-    await fetch("/api/vending/dispense", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId }),
-    });
-  }
 
-  async function onCancel() {
-    await fetch("/api/vending/cancel", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId }),
-    });
-    router.push("/");
-  }
 
   function scrollToBottom() {
     const el = listRef.current;
@@ -208,7 +193,6 @@ function ClaimInner() {
       {snap?.state === "CLAIMED" && canControl && (
         <div className="flex flex-col gap-3 w-full max-w-sm">
           <div>Starting chat for {snap.lockedByName}…</div>
-          <button className="bg-gray-800 text-white rounded p-3" onClick={onCancel}>Cancel</button>
         </div>
       )}
       {snap?.state === "CHATTING" && canControl && (
@@ -255,15 +239,11 @@ function ClaimInner() {
                 autoComplete="off"
                 aria-label="Message input"
               />
-              <button type="submit" className="rounded-md px-4 py-2 bg-blue-600 text-white disabled:opacity-50" disabled={!input.trim()}>
+              <button type="submit" className="rounded-md px-4 py-2 bg-gray-600 text-white disabled:opacity-50" disabled={!input.trim()}>
                 Send
               </button>
             </form>
 
-            <div className="p-3 grid grid-cols-2 gap-2">
-              <button type="button" className="bg-green-600 text-white rounded-md py-2" onClick={onDispense}>Dispense</button>
-              <button type="button" className="bg-gray-800 text-white rounded-md py-2" onClick={onCancel}>Cancel</button>
-            </div>
           </div>
         </div>
       )}

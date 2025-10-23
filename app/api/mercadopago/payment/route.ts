@@ -11,13 +11,14 @@ const POS_ID = "PABE1";
 interface PaymentRequest {
   amount: number;
   description: string;
+  quantity: number;
   sessionId: string;
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as PaymentRequest;
-    const { amount, description, sessionId } = body;
+    const { amount, description, quantity, sessionId } = body;
 
     if (!amount || !description || !sessionId) {
       return NextResponse.json(
@@ -72,8 +73,8 @@ export async function POST(req: NextRequest) {
       items: [
         {
           title: description,
-          unit_price: amount.toString(),
-          quantity: 1,
+          unit_price: (amount / (quantity || 1)).toFixed(2),
+          quantity: quantity || 1,
           unit_measure: "unit"
         }
       ]

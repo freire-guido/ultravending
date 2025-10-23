@@ -72,26 +72,30 @@ export async function PUT(req: Request) {
           additionalProperties: false,
         },
       },
-      {
-        type: "function",
-        name: "payment",
-        description: "Collect payment for the agreed price of the product.",
-        parameters: {
-          type: "object",
-          properties: {
-            amount: {
-              type: "number",
-              description: "The price amount to charge for the product"
+        {
+          type: "function",
+          name: "payment",
+          description: "Collect payment for the agreed price of the product.",
+          parameters: {
+            type: "object",
+            properties: {
+              amount: {
+                type: "number",
+                description: "The price amount to charge for the product"
+              },
+              description: {
+                type: "string",
+                description: "Description of what the user is purchasing"
+              },
+              quantity: {
+                type: "number",
+                description: "The quantity of items being purchased"
+              }
             },
-            description: {
-              type: "string",
-              description: "Description of what the user is purchasing"
-            }
+            required: ["amount", "description", "quantity"],
+            additionalProperties: false,
           },
-          required: ["amount", "description"],
-          additionalProperties: false,
-        },
-      }
+        }
     ] as const;
 
     const baseRequest: Record<string, unknown> = {
@@ -139,9 +143,10 @@ export async function PUT(req: Request) {
           
           try {
             // Extract payment parameters from function call
-            const paymentArgs = args as { amount?: number; description?: string } || {};
+            const paymentArgs = args as { amount?: number; description?: string; quantity?: number } || {};
             const amount = paymentArgs.amount || 100; // Default to 100 if not provided
             const description = paymentArgs.description || "Vending Machine Purchase"; // Default description
+            const quantity = paymentArgs.quantity || 1; // Default to 1 if not provided
             
             // Generate payment QR code
             const headers = new Headers(req.headers);
@@ -157,6 +162,7 @@ export async function PUT(req: Request) {
               body: JSON.stringify({
                 amount,
                 description,
+                quantity,
                 sessionId,
               }),
             });
