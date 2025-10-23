@@ -68,6 +68,14 @@ function expireIfNeeded(): void {
       return;
     }
   }
+  
+  // Check payment expiration when in CHATTING state with payment info
+  if (store.state === "CHATTING" && store.paymentInfo.paymentExpiresAt !== null) {
+    if (now >= store.paymentInfo.paymentExpiresAt) {
+      resetToIdle();
+      return;
+    }
+  }
 }
 
 export function getSnapshot(): VendingSnapshot {

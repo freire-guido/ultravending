@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error) {
-    console.error("Store payment error:", error);
+    console.error("Payment error:", error);
     return NextResponse.json(
       { ok: false, message: "Internal server error" },
       { status: 500 }
@@ -189,7 +189,7 @@ export async function GET(req: NextRequest) {
     });
 
   } catch (error) {
-    console.error("Store payment status error:", error);
+    console.error("Payment status error:", error);
     return NextResponse.json(
       { ok: false, message: "Internal server error" },
       { status: 500 }

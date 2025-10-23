@@ -76,36 +76,33 @@ function ClaimInner() {
       };
     }
     // Check for payment timer
-    if ((snap.state === "CHATTING" && snap.paymentInfo.qrCodeDataUrl) || snap.state === "PAYMENT_PENDING") {
-      if (snap.paymentInfo.paymentExpiresAt) {
-        let raf = 0;
-        let mounted = true;
-        const tick = () => {
-          if (!mounted) return;
-          setNowMs(Date.now());
-          raf = window.requestAnimationFrame(tick);
-        };
+    if (snap.state === "CHATTING" && snap.paymentInfo.qrCodeDataUrl && snap.paymentInfo.paymentExpiresAt) {
+      let raf = 0;
+      let mounted = true;
+      const tick = () => {
+        if (!mounted) return;
+        setNowMs(Date.now());
         raf = window.requestAnimationFrame(tick);
-        return () => {
-          mounted = false;
-          if (raf) window.cancelAnimationFrame(raf);
-        };
-      }
+      };
+      raf = window.requestAnimationFrame(tick);
+      return () => {
+        mounted = false;
+        if (raf) window.cancelAnimationFrame(raf);
+      };
     }
   }, [snap?.state, snap?.chatExpiresAt, snap?.paymentInfo.paymentExpiresAt, snap?.paymentInfo.qrCodeDataUrl, canControl]);
 
   const progressRatio = useMemo(() => {
     if (!snap || snap.state !== "CHATTING" || !snap.chatExpiresAt) return 0;
     const remaining = Math.max(0, snap.chatExpiresAt - nowMs);
-    const ratio = remaining / 30000; // 30s TTL
+    const ratio = remaining / 60000; // 60s TTL to match server
     return Math.max(0, Math.min(1, ratio));
   }, [snap, nowMs]);
 
   const paymentProgressRatio = useMemo(() => {
     if (!snap || !snap.paymentInfo.paymentExpiresAt) return 0;
-    // Check for both CHATTING state with payment info and PAYMENT_PENDING state
-    if (snap.state !== "CHATTING" && snap.state !== "PAYMENT_PENDING") return 0;
-    if (snap.state === "CHATTING" && !snap.paymentInfo.qrCodeDataUrl) return 0;
+    // Only show payment progress when in CHATTING state with payment info
+    if (snap.state !== "CHATTING" || !snap.paymentInfo.qrCodeDataUrl) return 0;
     const remaining = Math.max(0, snap.paymentInfo.paymentExpiresAt - nowMs);
     const ratio = remaining / 60000; // 60s TTL
     return Math.max(0, Math.min(1, ratio));
@@ -184,7 +181,7 @@ function ClaimInner() {
         </div>
       )}
       {/* Payment progress bar */}
-      {((snap?.state === "CHATTING" && snap.paymentInfo.qrCodeDataUrl) || snap?.state === "PAYMENT_PENDING") && canControl && (
+      {snap?.state === "CHATTING" && snap.paymentInfo.qrCodeDataUrl && canControl && (
         <div className="fixed top-0 left-0 right-0 h-1 z-50" aria-hidden>
           <div
             className="h-full bg-white"

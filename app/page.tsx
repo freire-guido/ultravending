@@ -87,8 +87,8 @@ export default function Home() {
   // Timer for payment countdown
   useEffect(() => {
     if (!snap || !snap.paymentInfo.paymentExpiresAt) return;
-    // Check for both PAYMENT_PENDING state and CHATTING state with payment info
-    if (snap.state !== "PAYMENT_PENDING" && !(snap.state === "CHATTING" && snap.paymentInfo.qrCodeDataUrl)) return;
+    // Only run payment timer when in CHATTING state with payment info (not PAYMENT_PENDING)
+    if (snap.state !== "CHATTING" || !snap.paymentInfo.qrCodeDataUrl) return;
     let raf = 0;
     let mounted = true;
     const tick = () => {
@@ -112,8 +112,8 @@ export default function Home() {
 
   const paymentCurtainRatio = useMemo(() => {
     if (!snap || !snap.paymentInfo.paymentExpiresAt) return 0;
-    // Check for both PAYMENT_PENDING state and CHATTING state with payment info
-    if (snap.state !== "PAYMENT_PENDING" && !(snap.state === "CHATTING" && snap.paymentInfo.qrCodeDataUrl)) return 0;
+    // Only show payment curtain when in CHATTING state with payment info
+    if (snap.state !== "CHATTING" || !snap.paymentInfo.qrCodeDataUrl) return 0;
     const remaining = Math.max(0, snap.paymentInfo.paymentExpiresAt - nowMs);
     const ratio = 1 - Math.max(0, Math.min(1, remaining / 60000)); // 60s TTL
     return ratio; // 0 => all white, 1 => all black
@@ -139,18 +139,6 @@ export default function Home() {
       )}
       {/* Payment timer curtain */}
       {snap?.state === "CHATTING" && snap.paymentInfo.qrCodeDataUrl && (
-        <div
-          className="absolute inset-y-0 right-0 bg-black transition-none"
-          style={{ width: `${paymentCurtainRatio * 100}%` }}
-          aria-hidden
-        />
-      )}
-      {/* White base background for payment */}
-      {snap?.state === "PAYMENT_PENDING" && (
-        <div className="absolute inset-0 bg-white" aria-hidden />
-      )}
-      {/* Right-to-left black curtain for payment */}
-      {snap?.state === "PAYMENT_PENDING" && (
         <div
           className="absolute inset-y-0 right-0 bg-black transition-none"
           style={{ width: `${paymentCurtainRatio * 100}%` }}
@@ -189,26 +177,7 @@ export default function Home() {
           <div className="text-sm text-black">Pay with MercadoPago</div>
         </div>
       )}
-      {snap?.state === "PAYMENT_PENDING" && (
-        <div className="flex flex-col items-center gap-4 relative z-10">
-          <div className="text-xl text-black">Waiting for payment ${snap.paymentInfo.amount}</div>
-          <div className="text-xs text-black">Session: {snap.sessionId.slice(-6)}</div>
-          {snap.paymentInfo.qrCodeDataUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img 
-              src={snap.paymentInfo.qrCodeDataUrl} 
-              alt="Payment QR Code" 
-              className="w-[320px] h-[320px] bg-white p-2 rounded" 
-            />
-          ) : (
-            <div className="w-[320px] h-[320px] bg-white flex items-center justify-center">
-              <div className="text-black">Generating QR...</div>
-            </div>
-          )}
-          <div className="text-sm text-black">Pay with MercadoPago</div>
-        </div>
-      )}
-      {snap && snap.state !== "IDLE" && snap.state !== "PAYMENT_PENDING" && (
+      {snap && snap.state !== "IDLE" && !(snap.state === "CHATTING" && snap.paymentInfo.qrCodeDataUrl) && (
         <div className="relative flex flex-col items-center gap-2">
           <div className="text-xl text-black">
             {labelForState(snap)}
