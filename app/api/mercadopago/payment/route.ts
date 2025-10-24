@@ -89,8 +89,6 @@ export async function POST(req: NextRequest) {
 
     // Generar idempotency key único
     const idempotencyKey = `${sessionId}-${Date.now()}`;
-
-    // Crear order en MercadoPago
     const orderResponse = await fetch("https://api.mercadopago.com/v1/orders", {
       method: "POST",
       headers: {
