@@ -5,8 +5,8 @@ import { getSnapshot, setPaymentInfo } from "@/lib/vendingState";
 const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN!;
 
 // Datos de la sucursal y POS creados
-const STORE_ID = "71045421";
-const POS_ID = "PABE1";
+const STORE_ID = process.env.MP_STORE_ID!;
+const POS_ID = process.env.MP_POS_ID!;
 
 interface PaymentRequest {
   amount: number;
@@ -30,6 +30,13 @@ export async function POST(req: NextRequest) {
     if (!MP_ACCESS_TOKEN) {
       return NextResponse.json(
         { ok: false, message: "MercadoPago access token not configured" },
+        { status: 500 }
+      );
+    }
+
+    if (!STORE_ID || !POS_ID) {
+      return NextResponse.json(
+        { ok: false, message: "MercadoPago store or POS not configured" },
         { status: 500 }
       );
     }
@@ -109,7 +116,7 @@ export async function POST(req: NextRequest) {
     console.log("MercadoPago order response:", JSON.stringify(order, null, 2));
     
     // Obtener el QR data del order
-    let qrCodeUrl = order.type_response?.qr_data;
+    const qrCodeUrl = order.type_response?.qr_data;
     
     if (!qrCodeUrl) {
       console.error("No QR data in order response:", order);
