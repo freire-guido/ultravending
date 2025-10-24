@@ -51,6 +51,8 @@ async function verifyRequest({
 }
 
 export async function POST(req: NextRequest) {
+  console.log("=== WEBHOOK ENDPOINT HIT ===", new Date().toISOString());
+  
   // Leé el body *crudo* y luego parsealo.
   const raw = await req.text();
   // Puede venir data.id en query o en body según el tópico/simulador
@@ -86,7 +88,19 @@ export async function POST(req: NextRequest) {
   // y despachar procesamiento asíncrono aparte si es pesado.
   // (Acá lo hacemos inline por simplicidad.)
   try {
-    console.log("Webhook received:", { dataId, xTopic, xRequestId });
+    console.log("Webhook received:", { 
+      dataId, 
+      xTopic, 
+      xRequestId, 
+      body: JSON.stringify(body, null, 2),
+      headers: Object.fromEntries(req.headers.entries())
+    });
+    
+    // Handle test notifications
+    if (body?.type === "test" || body?.action === "test") {
+      console.log("Test webhook received, ignoring");
+      return NextResponse.json({ ok: true, message: "Test webhook received" });
+    }
     
     if (dataId && (xTopic as string).toLowerCase().includes("order")) {
       // Handle order events (for QR payments)
@@ -101,6 +115,14 @@ export async function POST(req: NextRequest) {
       if (order.status === "paid") {
         // Order paid - clear payment info and resume chat timer
         const snapshot = getSnapshot();
+        console.log("Order paid - checking state match:", {
+          orderId: order.id,
+          currentState: snapshot.state,
+          sessionId: snapshot.sessionId,
+          paymentInfo: snapshot.paymentInfo,
+          preferenceId: snapshot.paymentInfo?.preferenceId
+        });
+        
         if (snapshot.state === "CHATTING" && snapshot.paymentInfo.preferenceId === order.id) {
           clearPaymentInfo(snapshot.sessionId);
           resumeChatTimerAfterPayment(snapshot.sessionId);
@@ -109,6 +131,8 @@ export async function POST(req: NextRequest) {
           clearPaymentInfo(snapshot.sessionId);
           transitionToChatting(snapshot.sessionId);
           console.log("Order paid for session:", snapshot.sessionId);
+        } else {
+          console.log("Order paid but no matching session found or wrong state");
         }
       } else if (order.status === "cancelled" || order.status === "expired") {
         // Order cancelled/expired - clear payment info and resume chat timer

@@ -154,6 +154,8 @@ export async function PUT(req: Request) {
             const proto = headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
             const baseUrl = `${proto}://${host}`;
             
+            // eslint-disable-next-line no-console
+            console.log("[DEBUG] Payment request", { baseUrl, amount, description, quantity, sessionId });
             const paymentResponse = await fetch(`${baseUrl}/api/mercadopago/payment`, {
               method: "POST",
               headers: {
@@ -166,6 +168,8 @@ export async function PUT(req: Request) {
                 sessionId,
               }),
             });
+            // eslint-disable-next-line no-console
+            console.log("[DEBUG] Payment response status", paymentResponse.status);
             
             if (paymentResponse.ok) {
               const paymentData = await paymentResponse.json();
