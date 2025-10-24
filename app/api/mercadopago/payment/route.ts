@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
       total_amount: amount.toString(),
       description: description,
       external_reference: sessionId,
-      expiration_time: "PT15M", // 15 minutos de expiración
+      expiration_time: "PT2M", // 2 minutos de expiración
       config: {
         qr: {
           external_pos_id: POS_ID,
@@ -89,6 +89,7 @@ export async function POST(req: NextRequest) {
 
     // Generar idempotency key único
     const idempotencyKey = `${sessionId}-${Date.now()}`;
+
     const orderResponse = await fetch("https://api.mercadopago.com/v1/orders", {
       method: "POST",
       headers: {
@@ -97,6 +98,12 @@ export async function POST(req: NextRequest) {
         "X-Idempotency-Key": idempotencyKey,
       },
       body: JSON.stringify(orderData),
+    });
+
+    // Log de respuesta HTTP (status + headers)
+    console.log("MP order HTTP response", {
+      status: orderResponse.status,
+      headers: Object.fromEntries(orderResponse.headers.entries()),
     });
 
     if (!orderResponse.ok) {
