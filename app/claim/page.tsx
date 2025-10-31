@@ -186,6 +186,9 @@ function ClaimInner() {
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
+          <div className="text-[11px] leading-snug text-gray-400">
+            Al continuar aceptás los <a href="/terms" className="underline text-gray-300 hover:text-white">Términos y Condiciones</a>.
+          </div>
           <button className="bg-black text-white rounded p-3" onClick={onSubmit}>Start</button>
           {error && <div className="text-red-600 text-sm">{error}</div>}
         </div>
