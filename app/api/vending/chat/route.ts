@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { startChat, canSendChat, dispense as dispenseAction, pauseChatTimer, resumeChatTimer } from "@/lib/vendingState";
+import { readInventory, decrementSlot } from "@/lib/inventory";
 import { streamText, convertToModelMessages, tool, stepCountIs, UIMessage, jsonSchema } from "ai";
 import { openai } from "@ai-sdk/openai";
 
@@ -51,9 +52,20 @@ export async function PUT(req: Request) {
     const result = await streamText({
       model,
       messages: convertToModelMessages(messages),
-      system: "You are a vending assistant. Always collect payment before dispensing. Be concise and helpful.",
+      system: "You are a vending assistant. Always collect payment before dispensing. Be concise and helpful. Before proposing or dispensing items, first call the listInventory tool to see available slots (amount > 0). Use the chosen slot's description as the product name when charging and dispensing. Never attempt to dispense out-of-stock items; re-check inventory immediately before dispensing.",
       stopWhen: stepCountIs(5),
       tools: {
+        listInventory: tool({
+          description: "List available inventory slots with amount > 0.",
+          inputSchema: jsonSchema({ type: "object", properties: {}, additionalProperties: false } as const),
+          execute: async () => {
+            const inv = await readInventory();
+            return Object.entries(inv)
+              .map(([k, v]) => ({ slot: Number(k), description: v.description, amount: v.amount }))
+              .filter((x) => x.amount > 0)
+              .sort((a, b) => a.slot - b.slot);
+          }
+        }),
         payment: tool({
           description: "Collect payment for the agreed price of the product.",
           inputSchema: jsonSchema({
@@ -96,19 +108,42 @@ export async function PUT(req: Request) {
             type: "object",
             properties: {
               amount: { type: "number", description: "The price amount of the product being dispensed" },
-              productName: { type: "string", description: "The name of the product being dispensed" }
+              productName: { type: "string", description: "The name of the product being dispensed" },
+              slot: { type: "number", description: "Inventory slot (0-9) to decrement", minimum: 0, maximum: 9 }
             },
             required: ["amount", "productName"],
             additionalProperties: false
           } as const),
           execute: async (
-            { amount, productName }: { amount: number; productName: string }
+            { amount, productName, slot }: { amount: number; productName: string; slot?: number }
           ) => {
+            // Validate inventory and override productName from slot if provided
+            if (typeof slot === "number" && Number.isInteger(slot)) {
+              const inv = await readInventory();
+              const item = inv[String(slot)];
+              if (!item || item.amount <= 0) {
+                return "Selected slot is out of stock.";
+              }
+              if (item.description && item.description.trim().length > 0) {
+                productName = item.description;
+              } else {
+                productName = `Slot ${slot}`;
+              }
+            }
+
             pauseChatTimer(sessionId);
             const result = dispenseAction(sessionId);
             resumeChatTimer(sessionId);
             if (!result.ok) {
               return result.message || "Unable to dispense at this time.";
+            }
+            if (typeof slot === "number" && Number.isInteger(slot)) {
+              try {
+                await decrementSlot(slot);
+              } catch (err) {
+                // eslint-disable-next-line no-console
+                console.error("[INVENTORY_DECREMENT_ERROR]", err);
+              }
             }
             return `${productName} dispensed successfully. Please collect your item.`;
           }
