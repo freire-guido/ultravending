@@ -1,0 +1,51 @@
+{
+  "0": {
+    "description": "coca cola",
+    "avg_unit_price": 100,
+    "amount": 1
+  },
+  "1": {
+    "description": "sprite",
+    "avg_price": 200,
+    "amount": 2
+  },
+  "2": {
+    "description": "fanta",
+    "avg_price": 300,
+    "amount": 5
+  },
+  "3": {
+    "description": "7up",
+    "avg_price": 100,
+    "amount": 0
+  },
+  "4": {
+    "description": "agua",
+    "amount": 0
+  },
+  "5": {
+    "description": "agua con gas",
+    "avg_price": 200,
+    "amount": 0
+  },
+  "6": {
+    "description": "lays",
+    "avg_price": 500,
+    "amount": 2
+  },
+  "7": {
+    "description": "agua con gas",
+    "avg_price": 100,
+    "amount": 1
+  },
+  "8": {
+    "description": "agua con gas",
+    "avg_price": 100,
+    "amount": 0
+  },
+  "9": {
+    "description": "agua con gas",
+    "avg_price": 100,
+    "amount": 0
+  }
+}

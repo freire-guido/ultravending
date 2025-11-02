@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
 
-type VendingStateType = "IDLE" | "CLAIMED" | "CHATTING" | "PAYMENT_PENDING" | "DISPENSING" | "DONE";
+type VendingStateType = "IDLE" | "CHATTING" | "PAYMENT_PENDING" | "DISPENSING" | "DONE";
 
 interface PaymentInfo {
   preferenceId: string | null;
@@ -21,6 +21,7 @@ interface Snapshot {
   lockedByName: string | null;
   updatedAt: number;
   chatExpiresAt?: number | null;
+  dispensingExpiresAt?: number | null;
   paymentInfo: PaymentInfo;
 }
 
@@ -87,8 +88,7 @@ export default function Home() {
   // Timer for payment countdown
   useEffect(() => {
     if (!snap || !snap.paymentInfo.paymentExpiresAt) return;
-    // Only run payment timer when in CHATTING state with payment info (not PAYMENT_PENDING)
-    if (snap.state !== "CHATTING" || !snap.paymentInfo.qrCodeDataUrl) return;
+    if (snap.state !== "PAYMENT_PENDING") return;
     let raf = 0;
     let mounted = true;
     const tick = () => {
@@ -101,7 +101,7 @@ export default function Home() {
       mounted = false;
       if (raf) window.cancelAnimationFrame(raf);
     };
-  }, [snap?.state, snap?.paymentInfo.paymentExpiresAt, snap?.paymentInfo.qrCodeDataUrl]);
+  }, [snap?.state, snap?.paymentInfo.paymentExpiresAt]);
 
   const curtainRatio = useMemo(() => {
     if (!snap || snap.state !== "CHATTING" || !snap.chatExpiresAt) return 0;
@@ -112,8 +112,7 @@ export default function Home() {
 
   const paymentCurtainRatio = useMemo(() => {
     if (!snap || !snap.paymentInfo.paymentExpiresAt) return 0;
-    // Only show payment curtain when in CHATTING state with payment info
-    if (snap.state !== "CHATTING" || !snap.paymentInfo.qrCodeDataUrl) return 0;
+    if (snap.state !== "PAYMENT_PENDING") return 0;
     const remaining = Math.max(0, snap.paymentInfo.paymentExpiresAt - nowMs);
     const ratio = 1 - Math.max(0, Math.min(1, remaining / 60000)); // 60s TTL
     return ratio; // 0 => all white, 1 => all black
@@ -133,12 +132,12 @@ export default function Home() {
           aria-hidden
         />
       )}
-      {/* Payment timer overlay when in CHATTING state with payment info */}
-      {snap?.state === "CHATTING" && snap.paymentInfo.qrCodeDataUrl && (
+      {/* Payment timer overlay when in PAYMENT_PENDING state */}
+      {snap?.state === "PAYMENT_PENDING" && (
         <div className="absolute inset-0 bg-white" aria-hidden />
       )}
       {/* Payment timer curtain */}
-      {snap?.state === "CHATTING" && snap.paymentInfo.qrCodeDataUrl && (
+      {snap?.state === "PAYMENT_PENDING" && (
         <div
           className="absolute inset-y-0 right-0 bg-black transition-none"
           style={{ width: `${paymentCurtainRatio * 100}%` }}
@@ -147,21 +146,30 @@ export default function Home() {
       )}
       {snap?.state === "IDLE" && (
         <div className="flex flex-col items-center gap-4">
-          <div className="text-xl">Scan to start</div>
-          {qrDataUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={qrDataUrl} alt="QR Code" className="w-[320px] h-[320px] bg-white p-2 rounded" />
+          {snap.paymentInfo.qrCodeDataUrl ? (
+            <>
+              <div className="text-xl text-white">Waiting for payment ${snap.paymentInfo.amount}</div>
+              <img src={snap.paymentInfo.qrCodeDataUrl} alt="Payment QR Code" className="w-[320px] h-[320px] bg-white p-2 rounded" />
+              <div className="text-sm text-white">Pay with MercadoPago</div>
+            </>
           ) : (
-            <div className="w-[320px] h-[320px] bg-white" />
+            <>
+              <div className="text-xl">Scan to start</div>
+              {qrDataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={qrDataUrl} alt="QR Code" className="w-[320px] h-[320px] bg-white p-2 rounded" />
+              ) : (
+                <div className="w-[320px] h-[320px] bg-white" />
+              )}
+            </>
           )}
           <div className="text-xs text-gray-400">Session: {snap.sessionId.slice(-6)}</div>
         </div>
       )}
-      {/* Payment display when in CHATTING state with payment info */}
-      {snap?.state === "CHATTING" && snap.paymentInfo.qrCodeDataUrl && (
+      {/* Payment display when in PAYMENT_PENDING state */}
+      {snap?.state === "PAYMENT_PENDING" && (
         <div className="flex flex-col items-center gap-4 relative z-10">
-          <div className="text-xl text-black">Waiting for payment ${snap.paymentInfo.amount}</div>
-          <div className="text-xs text-black">Session: {snap.sessionId.slice(-6)}</div>
+          <div className="text-xl text-white">Waiting for payment ${snap.paymentInfo.amount}</div>
           {snap.paymentInfo.qrCodeDataUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img 
@@ -174,10 +182,11 @@ export default function Home() {
               <div className="text-black">Generating QR...</div>
             </div>
           )}
-          <div className="text-sm text-black">Pay with MercadoPago</div>
+          <div className="text-sm text-white">Pay with MercadoPago</div>
+          <div className="text-xs text-gray-400">Session: {snap.sessionId.slice(-6)}</div>
         </div>
       )}
-      {snap && snap.state !== "IDLE" && !(snap.state === "CHATTING" && snap.paymentInfo.qrCodeDataUrl) && (
+      {snap && snap.state !== "IDLE" && snap.state !== "PAYMENT_PENDING" && (
         <div className="relative flex flex-col items-center gap-2">
           <div className="text-xl text-black">
             {labelForState(snap)}
@@ -191,8 +200,6 @@ export default function Home() {
 
 function labelForState(s: Snapshot): string {
   switch (s.state) {
-    case "CLAIMED":
-      return `Claimed by ${s.lockedByName ?? "unknown"}`;
     case "CHATTING":
       return `Chatting with ${s.lockedByName ?? "user"}`;
     case "PAYMENT_PENDING":

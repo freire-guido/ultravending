@@ -1,12 +1,65 @@
 import { NextRequest, NextResponse } from "next/server";
 import QRCode from "qrcode";
-import { getSnapshot, setPaymentInfo } from "@/lib/vendingState";
+import { getSnapshot, setPaymentInfo, clearPaymentInfo, transitionToChatting } from "@/lib/vendingState";
 
 const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN!;
 
 // Datos de la sucursal y POS creados
 const STORE_ID = process.env.MP_STORE_ID!;
 const POS_ID = process.env.MP_POS_ID!;
+
+// Polling function to check payment status (fallback for when webhooks don't work)
+async function startPaymentPolling(orderId: string, sessionId: string) {
+  const maxAttempts = 20; // Poll for 2 minutes (20 * 6 seconds)
+  let attempts = 0;
+  
+  const pollInterval = setInterval(async () => {
+    attempts++;
+    console.log(`Polling payment status for order ${orderId}, attempt ${attempts}`);
+    
+    try {
+      const response = await fetch(`https://api.mercadopago.com/v1/orders/${orderId}`, {
+        headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
+        cache: "no-store",
+      });
+      
+      if (response.ok) {
+        const order = await response.json();
+        console.log(`Order ${orderId} status:`, order.status);
+        
+        if (order.status === "paid" || order.status === "processed") {
+          console.log(`Payment completed for order ${orderId}, session ${sessionId}`);
+          const snapshot = getSnapshot();
+          
+          if (snapshot.sessionId === sessionId && snapshot.state === "PAYMENT_PENDING") {
+            clearPaymentInfo(sessionId);
+            transitionToChatting(sessionId);
+          }
+          clearInterval(pollInterval);
+        } else if (order.status === "cancelled" || order.status === "expired") {
+          console.log(`Payment cancelled/expired for order ${orderId}, session ${sessionId}`);
+          const snapshot = getSnapshot();
+          
+          if (snapshot.sessionId === sessionId && snapshot.state === "PAYMENT_PENDING") {
+            clearPaymentInfo(sessionId);
+            transitionToChatting(sessionId);
+          }
+          clearInterval(pollInterval);
+        }
+      }
+      
+      if (attempts >= maxAttempts) {
+        console.log(`Polling timeout for order ${orderId}`);
+        clearInterval(pollInterval);
+      }
+    } catch (error) {
+      console.error(`Polling error for order ${orderId}:`, error);
+      if (attempts >= maxAttempts) {
+        clearInterval(pollInterval);
+      }
+    }
+  }, 6000); // Poll every 6 seconds
+}
 
 interface PaymentRequest {
   amount: number;
@@ -63,7 +116,7 @@ export async function POST(req: NextRequest) {
       total_amount: amount.toString(),
       description: description,
       external_reference: sessionId,
-      expiration_time: "PT15M", // 15 minutos de expiración
+      expiration_time: "PT2M", // 2 minutos de expiración
       config: {
         qr: {
           external_pos_id: POS_ID,
@@ -90,7 +143,6 @@ export async function POST(req: NextRequest) {
     // Generar idempotency key único
     const idempotencyKey = `${sessionId}-${Date.now()}`;
 
-    // Crear order en MercadoPago
     const orderResponse = await fetch("https://api.mercadopago.com/v1/orders", {
       method: "POST",
       headers: {
@@ -99,6 +151,12 @@ export async function POST(req: NextRequest) {
         "X-Idempotency-Key": idempotencyKey,
       },
       body: JSON.stringify(orderData),
+    });
+
+    // Log de respuesta HTTP (status + headers)
+    console.log("MP order HTTP response", {
+      status: orderResponse.status,
+      headers: Object.fromEntries(orderResponse.headers.entries()),
     });
 
     if (!orderResponse.ok) {
@@ -156,6 +214,9 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Start polling for payment status (fallback for when webhooks don't work)
+    startPaymentPolling(order.id, sessionId);
 
     return NextResponse.json({
       ok: true,

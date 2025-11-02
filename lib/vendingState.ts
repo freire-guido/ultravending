@@ -1,4 +1,4 @@
-export type VendingStateType = "IDLE" | "CLAIMED" | "CHATTING" | "PAYMENT_PENDING" | "DISPENSING" | "DONE";
+export type VendingStateType = "IDLE" | "CHATTING" | "PAYMENT_PENDING" | "DISPENSING" | "DONE";
 
 export interface PaymentInfo {
   preferenceId: string | null;
@@ -16,6 +16,7 @@ export interface VendingSnapshot {
   lockedByName: string | null;
   updatedAt: number;
   chatExpiresAt: number | null;
+  dispensingExpiresAt: number | null;
   paymentInfo: PaymentInfo;
 }
 
@@ -28,6 +29,7 @@ function generateSessionId(): string {
 
 const CHAT_TTL_MS = 60_000; // 60 seconds to match client progress bar
 const PAYMENT_TTL_MS = 60_000; // 1 minute
+const DISPENSING_TTL_MS = 30_000; // 30 seconds timeout for dispensing
 
 const store: VendingStore = {
   state: "IDLE",
@@ -35,6 +37,7 @@ const store: VendingStore = {
   lockedByName: null,
   updatedAt: Date.now(),
   chatExpiresAt: null,
+  dispensingExpiresAt: null,
   paymentInfo: {
     preferenceId: null,
     qrCodeUrl: null,
@@ -69,10 +72,14 @@ function expireIfNeeded(): void {
     }
   }
   
-  // Check payment expiration when in CHATTING state with payment info
-  if (store.state === "CHATTING" && store.paymentInfo.paymentExpiresAt !== null) {
-    if (now >= store.paymentInfo.paymentExpiresAt) {
-      resetToIdle();
+  // Check dispensing expiration - safety timeout
+  if (store.state === "DISPENSING" && store.dispensingExpiresAt !== null) {
+    if (now >= store.dispensingExpiresAt) {
+      // Auto-return to CHATTING after timeout
+      store.state = "CHATTING";
+      store.dispensingExpiresAt = null;
+      store.chatExpiresAt = Date.now() + CHAT_TTL_MS;
+      touch();
       return;
     }
   }
@@ -104,17 +111,8 @@ export function claim(sessionId: string, userName: string): { ok: boolean; messa
   if (sessionId !== store.sessionId) {
     return { ok: false, message: "Invalid or expired QR. Please rescan." };
   }
-  store.state = "CLAIMED";
-  store.lockedByName = userName;
-  touch();
-  return { ok: true };
-}
-
-export function startChat(sessionId: string): { ok: boolean; message?: string } {
-  expireIfNeeded();
-  if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
-  if (store.state !== "CLAIMED") return { ok: false, message: `Cannot start chat from ${store.state}` };
   store.state = "CHATTING";
+  store.lockedByName = userName;
   store.chatExpiresAt = Date.now() + CHAT_TTL_MS;
   touch();
   return { ok: true };
@@ -137,17 +135,25 @@ export function dispense(sessionId: string): { ok: boolean; message?: string } {
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   if (store.state !== "CHATTING") return { ok: false, message: `Cannot dispense from ${store.state}` };
   store.state = "DISPENSING";
+  store.dispensingExpiresAt = Date.now() + DISPENSING_TTL_MS;
   // Placeholder for physical dispense
   console.log("[PLACEHOLDER] Dispensing item for", store.lockedByName);
   touch();
-  // Auto-transition to DONE then back to IDLE after short delay
+  return { ok: true };
+}
+
+export function completeTransaction(sessionId: string): { ok: boolean; message?: string } {
+  expireIfNeeded();
+  if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
+  if (store.state !== "CHATTING" && store.state !== "DONE") {
+    return { ok: false, message: `Cannot complete transaction from ${store.state}` };
+  }
+  store.state = "DONE";
+  touch();
+  // Auto-transition to IDLE after 2 seconds
   setTimeout(() => {
-    store.state = "DONE";
-    touch();
-    setTimeout(() => {
-      resetToIdle();
-    }, 2000);
-  }, 1000);
+    resetToIdle();
+  }, 2000);
   return { ok: true };
 }
 
@@ -155,7 +161,9 @@ export function markDone(sessionId: string): { ok: boolean; message?: string } {
   expireIfNeeded();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   if (store.state !== "DISPENSING") return { ok: false, message: `Cannot mark done from ${store.state}` };
-  store.state = "DONE";
+  store.state = "CHATTING";
+  store.dispensingExpiresAt = null;
+  store.chatExpiresAt = Date.now() + CHAT_TTL_MS;
   touch();
   return { ok: true };
 }
@@ -165,6 +173,7 @@ export function resetToIdle(): void {
   store.lockedByName = null;
   store.sessionId = generateSessionId();
   store.chatExpiresAt = null;
+  store.dispensingExpiresAt = null;
   store.paymentInfo = {
     preferenceId: null,
     qrCodeUrl: null,
@@ -216,8 +225,7 @@ export function setPaymentInfo(sessionId: string, paymentInfo: PaymentInfo): { o
     createdAt: Date.now(),
     paymentExpiresAt: Date.now() + PAYMENT_TTL_MS
   };
-  // Keep state as CHATTING so chat remains visible
-  // store.state = "PAYMENT_PENDING"; // Removed this line
+  store.state = "PAYMENT_PENDING";
   touch();
   return { ok: true };
 }
@@ -248,8 +256,8 @@ export function transitionToChatting(sessionId: string): { ok: boolean; message?
   if (store.state !== "PAYMENT_PENDING") return { ok: false, message: `Cannot transition from ${store.state} to CHATTING` };
   
   store.state = "CHATTING";
-  // Resume chat timer with remaining time
-  resumeChatTimer(sessionId);
+  // Start fresh chat timer from 0
+  store.chatExpiresAt = Date.now() + CHAT_TTL_MS;
   touch();
   return { ok: true };
 }
