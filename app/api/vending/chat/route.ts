@@ -1,37 +1,21 @@
 import { NextResponse } from "next/server";
-import { startChat, canSendChat, dispense as dispenseAction, pauseChatTimer, resumeChatTimer } from "@/lib/vendingState";
+import { canSendChat, dispense as dispenseAction, pauseChatTimer, resumeChatTimer } from "@/lib/vendingState";
 import { readInventory, decrementSlot } from "@/lib/inventory";
-import { streamText, convertToModelMessages, tool, stepCountIs, UIMessage, jsonSchema } from "ai";
+import { streamText, tool, stepCountIs, jsonSchema, convertToModelMessages, UIMessage } from "ai";
 import { openai } from "@ai-sdk/openai";
 
+export const maxDuration = 30;
+
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
-  const { sessionId } = body as { sessionId?: string };
+  const { messages }: { messages: UIMessage[] } = await req.json().catch(() => ({ messages: [] }));
+  
+  // Get sessionId from query string (useChat sends it in the URL)
+  const sessionId = new URL(req.url).searchParams.get("sessionId") || "";
+  
   if (!sessionId) {
     return NextResponse.json({ ok: false, message: "Missing sessionId" }, { status: 400 });
   }
-  try {
-    const headers = new Headers(req.headers);
-    const host = headers.get("x-forwarded-host") || headers.get("host") || "localhost:3000";
-    const proto = headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
-    const baseUrl = `${proto}://${host}`;
-    const chatUrl = `${baseUrl}/claim?sessionId=${encodeURIComponent(sessionId)}`;
-    // eslint-disable-next-line no-console
-    console.log("[DEBUG] Chat URL:", chatUrl);
-  } catch {
-    // ignore logging errors
-  }
-  const res = startChat(sessionId);
-  return NextResponse.json(res, { status: res.ok ? 200 : 409 });
-}
 
-// Minimal chat message relay
-export async function PUT(req: Request) {
-  const body = await req.json().catch(() => ({}));
-  const { sessionId, messages } = body as { sessionId?: string; messages?: UIMessage[] };
-  if (!sessionId || !Array.isArray(messages)) {
-    return NextResponse.json({ ok: false, message: "Missing sessionId or messages" }, { status: 400 });
-  }
   const allowed = canSendChat(sessionId);
   if (!allowed.ok) {
     return NextResponse.json({ ok: false, message: allowed.message || "Chat expired" }, { status: 409 });
@@ -41,7 +25,12 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: false, message: "Server missing OPENAI_API_KEY" }, { status: 500 });
   }
 
-  const model = openai(process.env.OPENAI_MODEL || "gpt-4o-mini");
+  // Validate messages array
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return NextResponse.json({ ok: false, message: "Invalid messages array" }, { status: 400 });
+  }
+
+  const model = openai(process.env.OPENAI_MODEL || "gpt-5-nano");
 
   try {
     const headers = new Headers(req.headers);
@@ -49,10 +38,10 @@ export async function PUT(req: Request) {
     const proto = headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
     const baseUrl = `${proto}://${host}`;
 
-    const result = await streamText({
+    const result = streamText({
       model,
-      messages: convertToModelMessages(messages),
       system: "You are a vending assistant. Always collect payment before dispensing. Be concise and helpful. Before proposing or dispensing items, first call the listInventory tool to see available slots (amount > 0). Use the chosen slot's description as the product name when charging and dispensing. Never attempt to dispense out-of-stock items; re-check inventory immediately before dispensing.",
+      messages: convertToModelMessages(messages),
       stopWhen: stepCountIs(5),
       tools: {
         listInventory: tool({
@@ -151,12 +140,10 @@ export async function PUT(req: Request) {
       }
     });
 
-    return result.toUIMessageStreamResponse()
+    return result.toUIMessageStreamResponse();
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error("[AI_SDK_CHAT_ERROR]", error);
     return NextResponse.json({ ok: false, message: "Chat failed" }, { status: 500 });
   }
 }
-
-

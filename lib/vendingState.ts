@@ -1,4 +1,4 @@
-export type VendingStateType = "IDLE" | "CLAIMED" | "CHATTING" | "PAYMENT_PENDING" | "DISPENSING" | "DONE";
+export type VendingStateType = "IDLE" | "CHATTING" | "PAYMENT_PENDING" | "DISPENSING" | "DONE";
 
 export interface PaymentInfo {
   preferenceId: string | null;
@@ -104,17 +104,8 @@ export function claim(sessionId: string, userName: string): { ok: boolean; messa
   if (sessionId !== store.sessionId) {
     return { ok: false, message: "Invalid or expired QR. Please rescan." };
   }
-  store.state = "CLAIMED";
-  store.lockedByName = userName;
-  touch();
-  return { ok: true };
-}
-
-export function startChat(sessionId: string): { ok: boolean; message?: string } {
-  expireIfNeeded();
-  if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
-  if (store.state !== "CLAIMED") return { ok: false, message: `Cannot start chat from ${store.state}` };
   store.state = "CHATTING";
+  store.lockedByName = userName;
   store.chatExpiresAt = Date.now() + CHAT_TTL_MS;
   touch();
   return { ok: true };

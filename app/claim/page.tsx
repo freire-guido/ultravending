@@ -2,8 +2,10 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useChat, Chat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 
-type VendingStateType = "IDLE" | "CLAIMED" | "CHATTING" | "PAYMENT_PENDING" | "DISPENSING" | "DONE";
+type VendingStateType = "IDLE" | "CHATTING" | "PAYMENT_PENDING" | "DISPENSING" | "DONE";
 
 interface PaymentInfo {
   preferenceId: string | null;
@@ -31,8 +33,6 @@ function ClaimInner() {
   const [name, setName] = useState<string>("");
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [error, setError] = useState<string>("");
-  const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
-  const [input, setInput] = useState<string>("");
   const listRef = useRef<HTMLDivElement | null>(null);
   const [nowMs, setNowMs] = useState<number>(Date.now());
 
@@ -57,6 +57,22 @@ function ClaimInner() {
   }, []);
 
   const canControl = useMemo(() => snap && snap.sessionId === sessionId, [snap, sessionId]);
+  
+  // Use AI SDK 5 useChat hook
+  const chat = useMemo(() => {
+    if (!sessionId) return null;
+    return new Chat({
+      transport: new DefaultChatTransport({
+        api: `/api/vending/chat?sessionId=${encodeURIComponent(sessionId)}`,
+      }),
+    });
+  }, [sessionId]);
+  
+  const { messages, sendMessage, status } = useChat(chat ? {
+    chat: chat,
+  } : undefined);
+  
+  const [input, setInput] = useState<string>("");
 
   useEffect(() => {
     if (!snap || !canControl) return;
@@ -120,14 +136,7 @@ function ClaimInner() {
       setError(j.message || "Failed to claim. It might be busy." );
       return;
     }
-    // Immediately start chat on success
-    await fetch("/api/vending/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId }),
-    });
   }
-
 
 
   function scrollToBottom() {
@@ -139,19 +148,10 @@ function ClaimInner() {
     scrollToBottom();
   }, [messages.length]);
 
-  async function onSend() {
-    if (!input.trim()) return;
-    const nextMessages = [...messages, { role: "user" as const, content: input.trim() }];
-    setMessages(nextMessages);
+  function onSend() {
+    if (!input.trim() || status !== "ready" || !canControl || snap?.state !== "CHATTING") return;
+    sendMessage({ text: input.trim() });
     setInput("");
-    const res = await fetch("/api/vending/chat", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId, messages: nextMessages }),
-    });
-    if (!res.ok) return;
-    const j = (await res.json()) as { ok: boolean; message?: { role: "assistant"; content: string } };
-    if (j.ok && j.message) setMessages((m) => [...m, j.message!]);
   }
 
   return (
@@ -193,11 +193,6 @@ function ClaimInner() {
           {error && <div className="text-red-600 text-sm">{error}</div>}
         </div>
       )}
-      {snap?.state === "CLAIMED" && canControl && (
-        <div className="flex flex-col gap-3 w-full max-w-sm">
-          <div>Starting chat for {snap.lockedByName}…</div>
-        </div>
-      )}
       {snap?.state === "CHATTING" && canControl && (
         <div className="w-full max-w-2xl mx-auto">
           <div className="flex flex-col h-[calc(100vh-8rem)]">
@@ -211,8 +206,8 @@ function ClaimInner() {
               {messages.length === 0 && (
                 <div className="text-sm text-gray-400">Say hi to start the conversation.</div>
               )}
-              {messages.map((m, i) => (
-                <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+              {messages.map((m) => (
+                <div key={m.id} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
                   <div
                     className={
                       m.role === "user"
@@ -220,7 +215,11 @@ function ClaimInner() {
                         : "max-w-[80%] rounded-2xl px-4 py-2 bg-black text-white border border-white"
                     }
                   >
-                    <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</div>
+                    <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                      {m.parts.map((part, index) =>
+                        part.type === "text" ? <span key={index}>{part.text}</span> : null
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -242,7 +241,7 @@ function ClaimInner() {
                 autoComplete="off"
                 aria-label="Message input"
               />
-              <button type="submit" className="rounded-md px-4 py-2 bg-gray-600 text-white disabled:opacity-50" disabled={!input.trim()}>
+              <button type="submit" className="rounded-md px-4 py-2 bg-gray-600 text-white disabled:opacity-50" disabled={!input.trim() || status !== "ready"}>
                 Send
               </button>
             </form>

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
 
-type VendingStateType = "IDLE" | "CLAIMED" | "CHATTING" | "PAYMENT_PENDING" | "DISPENSING" | "DONE";
+type VendingStateType = "IDLE" | "CHATTING" | "PAYMENT_PENDING" | "DISPENSING" | "DONE";
 
 interface PaymentInfo {
   preferenceId: string | null;
@@ -191,8 +191,6 @@ export default function Home() {
 
 function labelForState(s: Snapshot): string {
   switch (s.state) {
-    case "CLAIMED":
-      return `Claimed by ${s.lockedByName ?? "unknown"}`;
     case "CHATTING":
       return `Chatting with ${s.lockedByName ?? "user"}`;
     case "PAYMENT_PENDING":
