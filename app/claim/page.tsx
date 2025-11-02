@@ -195,8 +195,10 @@ function ClaimInner() {
       )}
       {snap?.state === "PAYMENT_PENDING" && canControl && (
         <div className="flex flex-col gap-3 w-full max-w-sm">
-          <div className="text-xl text-white">Waiting for payment ${snap.paymentInfo.amount}</div>
-          <div className="text-gray-400">Please complete payment on the server display</div>
+          <div className="text-2xl text-white font-bold">Pending Payment</div>
+          <div className="text-xl text-white">Amount: ${snap.paymentInfo.amount}</div>
+          <div className="text-white">Scan the QR code on the server display with your MercadoPago app</div>
+          <div className="text-gray-400 text-sm">Please complete payment to proceed</div>
         </div>
       )}
       {snap?.state === "CHATTING" && canControl && (
