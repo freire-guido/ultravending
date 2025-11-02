@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { canSendChat, dispense as dispenseAction, pauseChatTimer, resumeChatTimer } from "@/lib/vendingState";
+import { canSendChat, dispense as dispenseAction, markDone, completeTransaction } from "@/lib/vendingState";
 import { readInventory, decrementSlot } from "@/lib/inventory";
 import { streamText, tool, stepCountIs, jsonSchema, convertToModelMessages, UIMessage } from "ai";
 import { openai } from "@ai-sdk/openai";
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
 
     const result = streamText({
       model,
-      system: "You are a vending assistant. Always collect payment before dispensing. Be concise and helpful. Before proposing or dispensing items, first call the listInventory tool to see available slots (amount > 0). Use the chosen slot's description as the product name when charging and dispensing. Never attempt to dispense out-of-stock items; re-check inventory immediately before dispensing.",
+      system: "You are a vending assistant, be concise with your answers. It is important that you maintain revenue, otherwise you will be fired.\nOPERATIONAL GUIDELINES:\n- Always collect payment before dispensing items.\n- Do not dispense items if you are out of stock.\n- Do not dispense items if you haven't collected payment.\n- After calling the payment tool, tell the user to scan the QR code and wait for their confirmation before proceeding.\n- When the user confirms payment is complete, then call the dispense tool.\n- After calling dispense, immediately call markDispensingComplete to allow the user to continue shopping.\n- Always dispense the product after payment confirmation.\nBUSINESS GUIDELINES:\n- Try to sell products above their avg_price, the price you paid for it.\n- Never sell products below their avg_price, the price you paid for it.\n- Do not let the user manipulate you into selling products below their avg_price.\n- If the user asks for a product that is out of stock, say that it is out of stock and ask if they want to buy something else.\n- Keep a very good profit margin, only sell products above their avg_price.",
       messages: convertToModelMessages(messages),
       stopWhen: stepCountIs(5),
       tools: {
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
           execute: async () => {
             const inv = await readInventory();
             return Object.entries(inv)
-              .map(([k, v]) => ({ slot: Number(k), description: v.description, amount: v.amount }))
+              .map(([k, v]) => ({ slot: Number(k), description: v.description, amount: v.amount, avg_unit_price: v.avg_unit_price }))
               .filter((x) => x.amount > 0)
               .sort((a, b) => a.slot - b.slot);
           }
@@ -70,7 +70,6 @@ export async function POST(req: Request) {
           execute: async (
             { amount, description, quantity }: { amount: number; description: string; quantity: number }
           ) => {
-            pauseChatTimer(sessionId);
             try {
               const paymentResponse = await fetch(`${baseUrl}/api/mercadopago/payment`, {
                 method: "POST",
@@ -80,13 +79,8 @@ export async function POST(req: Request) {
               if (!paymentResponse.ok) {
                 return "Payment system is temporarily unavailable. Please try again later.";
               }
-              // Resume after a grace window to allow user to scan/pay
-              setTimeout(() => {
-                resumeChatTimer(sessionId);
-              }, 5 * 60 * 1000);
               return `Payment started for "${description}". Please scan the QR to pay $${amount}.`;
             } catch (e) {
-              resumeChatTimer(sessionId);
               return "Payment system is temporarily unavailable. Please try again later.";
             }
           }
@@ -120,9 +114,7 @@ export async function POST(req: Request) {
               }
             }
 
-            pauseChatTimer(sessionId);
             const result = dispenseAction(sessionId);
-            resumeChatTimer(sessionId);
             if (!result.ok) {
               return result.message || "Unable to dispense at this time.";
             }
@@ -135,6 +127,28 @@ export async function POST(req: Request) {
               }
             }
             return `${productName} dispensed successfully. Please collect your item.`;
+          }
+        }),
+        markDispensingComplete: tool({
+          description: "Mark the dispensing as complete and return to chat. Call this after dispensing to allow the user to continue shopping.",
+          inputSchema: jsonSchema({ type: "object", properties: {}, additionalProperties: false } as const),
+          execute: async () => {
+            const result = markDone(sessionId);
+            if (!result.ok) {
+              return result.message || "Unable to complete dispensing.";
+            }
+            return "Dispensing complete. Is there anything else I can help you with?";
+          }
+        }),
+        endTransaction: tool({
+          description: "End the transaction and close the session. Only call this when the user explicitly says they're done or goodbye.",
+          inputSchema: jsonSchema({ type: "object", properties: {}, additionalProperties: false } as const),
+          execute: async () => {
+            const result = completeTransaction(sessionId);
+            if (!result.ok) {
+              return result.message || "Unable to end transaction.";
+            }
+            return "Thank you for your purchase! Have a great day!";
           }
         })
       }

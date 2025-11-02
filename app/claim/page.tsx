@@ -23,6 +23,7 @@ interface Snapshot {
   lockedByName: string | null;
   updatedAt: number;
   chatExpiresAt: number | null;
+  dispensingExpiresAt: number | null;
   paymentInfo: PaymentInfo;
 }
 
@@ -92,7 +93,7 @@ function ClaimInner() {
       };
     }
     // Check for payment timer
-    if (snap.state === "CHATTING" && snap.paymentInfo.qrCodeDataUrl && snap.paymentInfo.paymentExpiresAt) {
+    if (snap.state === "PAYMENT_PENDING" && snap.paymentInfo.paymentExpiresAt) {
       let raf = 0;
       let mounted = true;
       const tick = () => {
@@ -106,7 +107,7 @@ function ClaimInner() {
         if (raf) window.cancelAnimationFrame(raf);
       };
     }
-  }, [snap?.state, snap?.chatExpiresAt, snap?.paymentInfo.paymentExpiresAt, snap?.paymentInfo.qrCodeDataUrl, canControl]);
+  }, [snap?.state, snap?.chatExpiresAt, snap?.paymentInfo.paymentExpiresAt, canControl]);
 
   const progressRatio = useMemo(() => {
     if (!snap || snap.state !== "CHATTING" || !snap.chatExpiresAt) return 0;
@@ -117,8 +118,7 @@ function ClaimInner() {
 
   const paymentProgressRatio = useMemo(() => {
     if (!snap || !snap.paymentInfo.paymentExpiresAt) return 0;
-    // Only show payment progress when in CHATTING state with payment info
-    if (snap.state !== "CHATTING" || !snap.paymentInfo.qrCodeDataUrl) return 0;
+    if (snap.state !== "PAYMENT_PENDING") return 0;
     const remaining = Math.max(0, snap.paymentInfo.paymentExpiresAt - nowMs);
     const ratio = remaining / 60000; // 60s TTL
     return Math.max(0, Math.min(1, ratio));
@@ -157,7 +157,7 @@ function ClaimInner() {
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-center p-6 gap-6">
       {/* Chat progress bar */}
-      {snap?.state === "CHATTING" && canControl && !snap.paymentInfo.qrCodeDataUrl && (
+      {snap?.state === "CHATTING" && canControl && (
         <div className="fixed top-0 left-0 right-0 h-1 z-50" aria-hidden>
           <div
             className="h-full bg-white"
@@ -166,7 +166,7 @@ function ClaimInner() {
         </div>
       )}
       {/* Payment progress bar */}
-      {snap?.state === "CHATTING" && snap.paymentInfo.qrCodeDataUrl && canControl && (
+      {snap?.state === "PAYMENT_PENDING" && canControl && (
         <div className="fixed top-0 left-0 right-0 h-1 z-50" aria-hidden>
           <div
             className="h-full bg-white"
@@ -191,6 +191,12 @@ function ClaimInner() {
           </div>
           <button className="bg-black text-white rounded p-3" onClick={onSubmit}>Start</button>
           {error && <div className="text-red-600 text-sm">{error}</div>}
+        </div>
+      )}
+      {snap?.state === "PAYMENT_PENDING" && canControl && (
+        <div className="flex flex-col gap-3 w-full max-w-sm">
+          <div className="text-xl text-white">Waiting for payment ${snap.paymentInfo.amount}</div>
+          <div className="text-gray-400">Please complete payment on the server display</div>
         </div>
       )}
       {snap?.state === "CHATTING" && canControl && (

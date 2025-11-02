@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { getSnapshot, clearPaymentInfo, transitionToChatting, resumeChatTimerAfterPayment } from "@/lib/vendingState";
+import { getSnapshot, clearPaymentInfo, transitionToChatting } from "@/lib/vendingState";
 
 // Asegurate de setearlas en Vercel
 const WEBHOOK_SECRET = process.env.MP_WEBHOOK_SECRET!;
@@ -123,11 +123,7 @@ export async function POST(req: NextRequest) {
           preferenceId: snapshot.paymentInfo?.preferenceId
         });
         
-        if (snapshot.state === "CHATTING" && snapshot.paymentInfo.preferenceId === order.id) {
-          clearPaymentInfo(snapshot.sessionId);
-          resumeChatTimerAfterPayment(snapshot.sessionId);
-          console.log("Order paid for session:", snapshot.sessionId);
-        } else if (snapshot.state === "PAYMENT_PENDING") {
+        if (snapshot.state === "PAYMENT_PENDING" && snapshot.paymentInfo.preferenceId === order.id) {
           clearPaymentInfo(snapshot.sessionId);
           transitionToChatting(snapshot.sessionId);
           console.log("Order paid for session:", snapshot.sessionId);
@@ -135,13 +131,8 @@ export async function POST(req: NextRequest) {
           console.log("Order paid but no matching session found or wrong state");
         }
       } else if (order.status === "cancelled" || order.status === "expired") {
-        // Order cancelled/expired - clear payment info and resume chat timer
         const snapshot = getSnapshot();
-        if (snapshot.state === "CHATTING" && snapshot.paymentInfo.preferenceId === order.id) {
-          clearPaymentInfo(snapshot.sessionId);
-          resumeChatTimerAfterPayment(snapshot.sessionId);
-          console.log("Order cancelled/expired for session:", snapshot.sessionId);
-        } else if (snapshot.state === "PAYMENT_PENDING") {
+        if (snapshot.state === "PAYMENT_PENDING" && snapshot.paymentInfo.preferenceId === order.id) {
           clearPaymentInfo(snapshot.sessionId);
           transitionToChatting(snapshot.sessionId);
           console.log("Order cancelled/expired for session:", snapshot.sessionId);
@@ -159,22 +150,14 @@ export async function POST(req: NextRequest) {
       
       if (payment.status === "approved") {
         const snapshot = getSnapshot();
-        if (snapshot.state === "CHATTING" && snapshot.paymentInfo.preferenceId) {
-          clearPaymentInfo(snapshot.sessionId);
-          resumeChatTimerAfterPayment(snapshot.sessionId);
-          console.log("Payment approved for session:", snapshot.sessionId);
-        } else if (snapshot.state === "PAYMENT_PENDING") {
+        if (snapshot.state === "PAYMENT_PENDING" && snapshot.paymentInfo.preferenceId) {
           clearPaymentInfo(snapshot.sessionId);
           transitionToChatting(snapshot.sessionId);
           console.log("Payment approved for session:", snapshot.sessionId);
         }
       } else if (payment.status === "rejected" || payment.status === "cancelled") {
         const snapshot = getSnapshot();
-        if (snapshot.state === "CHATTING" && snapshot.paymentInfo.preferenceId) {
-          clearPaymentInfo(snapshot.sessionId);
-          resumeChatTimerAfterPayment(snapshot.sessionId);
-          console.log("Payment failed for session:", snapshot.sessionId);
-        } else if (snapshot.state === "PAYMENT_PENDING") {
+        if (snapshot.state === "PAYMENT_PENDING" && snapshot.paymentInfo.preferenceId) {
           clearPaymentInfo(snapshot.sessionId);
           transitionToChatting(snapshot.sessionId);
           console.log("Payment failed for session:", snapshot.sessionId);

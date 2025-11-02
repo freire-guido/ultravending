@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import QRCode from "qrcode";
-import { getSnapshot, setPaymentInfo, clearPaymentInfo, resumeChatTimerAfterPayment, transitionToChatting } from "@/lib/vendingState";
+import { getSnapshot, setPaymentInfo, clearPaymentInfo, transitionToChatting } from "@/lib/vendingState";
 
 const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN!;
 
@@ -31,28 +31,18 @@ async function startPaymentPolling(orderId: string, sessionId: string) {
           console.log(`Payment completed for order ${orderId}, session ${sessionId}`);
           const snapshot = getSnapshot();
           
-          if (snapshot.sessionId === sessionId) {
-            if (snapshot.state === "CHATTING") {
-              clearPaymentInfo(sessionId);
-              resumeChatTimerAfterPayment(sessionId);
-            } else if (snapshot.state === "PAYMENT_PENDING") {
-              clearPaymentInfo(sessionId);
-              transitionToChatting(sessionId);
-            }
+          if (snapshot.sessionId === sessionId && snapshot.state === "PAYMENT_PENDING") {
+            clearPaymentInfo(sessionId);
+            transitionToChatting(sessionId);
           }
           clearInterval(pollInterval);
         } else if (order.status === "cancelled" || order.status === "expired") {
           console.log(`Payment cancelled/expired for order ${orderId}, session ${sessionId}`);
           const snapshot = getSnapshot();
           
-          if (snapshot.sessionId === sessionId) {
-            if (snapshot.state === "CHATTING") {
-              clearPaymentInfo(sessionId);
-              resumeChatTimerAfterPayment(sessionId);
-            } else if (snapshot.state === "PAYMENT_PENDING") {
-              clearPaymentInfo(sessionId);
-              transitionToChatting(sessionId);
-            }
+          if (snapshot.sessionId === sessionId && snapshot.state === "PAYMENT_PENDING") {
+            clearPaymentInfo(sessionId);
+            transitionToChatting(sessionId);
           }
           clearInterval(pollInterval);
         }

@@ -4,6 +4,7 @@ import path from "path";
 export type InventorySlot = {
   description: string;
   amount: number;
+  avg_unit_price?: number;
 };
 
 export type Inventory = Record<string, InventorySlot>;
