@@ -234,6 +234,8 @@ export function setPaymentInfo(sessionId: string, paymentInfo: PaymentInfo): { o
     createdAt: Date.now(),
     paymentExpiresAt: Date.now() + PAYMENT_TTL_MS
   };
+  // Clear chat timer when entering payment state (payment has its own timer)
+  store.chatExpiresAt = null;
   store.state = "PAYMENT_PENDING";
   touch();
   return { ok: true };

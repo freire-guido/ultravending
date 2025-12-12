@@ -216,23 +216,77 @@ function ClaimInner() {
               {messages.length === 0 && (
                 <div className="text-sm text-gray-400">Say hi to start the conversation.</div>
               )}
-              {messages.map((m) => (
-                <div key={m.id} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-                  <div
-                    className={
-                      m.role === "user"
-                        ? "max-w-[80%] rounded-2xl px-4 py-2 bg-blue-600 text-white"
-                        : "max-w-[80%] rounded-2xl px-4 py-2 bg-black text-white border border-white"
-                    }
-                  >
-                    <div className="whitespace-pre-wrap text-sm leading-relaxed">
-                      {m.parts.map((part, index) =>
-                        part.type === "text" ? <span key={index}>{part.text}</span> : null
-                      )}
-                    </div>
+              {messages.map((m) => {
+                // Filter parts by type
+                const textParts = m.parts.filter(part => part.type === "text");
+                const toolCalls = m.parts.filter(part => part.type.startsWith("tool-"));
+                
+                return (
+                  <div key={m.id}>
+                    {/* Regular text messages */}
+                    {textParts.length > 0 && (
+                      <div className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+                        <div
+                          className={
+                            m.role === "user"
+                              ? "max-w-[80%] rounded-2xl px-4 py-2 bg-blue-600 text-white"
+                              : "max-w-[80%] rounded-2xl px-4 py-2 bg-black text-white border border-white"
+                          }
+                        >
+                          <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                            {textParts.map((part, index) =>
+                              part.type === "text" ? <span key={index}>{part.text}</span> : null
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {/* Tool call messages - displayed with lighter styling */}
+                    {toolCalls.map((part, index) => {
+                      if (!part.type.startsWith("tool-")) return null;
+                      
+                      // Extract tool name from type (e.g., "tool-payment" -> "payment")
+                      const toolName = part.type.replace("tool-", "");
+                      // Get input/args - the structure may vary, so we handle it safely
+                      const input = "input" in part ? part.input : {};
+                      const args = typeof input === "object" && input !== null ? input as Record<string, unknown> : {};
+                      
+                      // Format tool call display based on tool name
+                      let displayText = "";
+                      let icon = "🔧";
+                      
+                      if (toolName === "payment") {
+                        icon = "💳";
+                        displayText = `Processing payment: $${args.amount || "?"} for ${args.description || "item"}`;
+                      } else if (toolName === "dispense") {
+                        icon = "📦";
+                        displayText = `Dispensing: ${args.productName || "product"}${args.slot !== undefined ? ` from slot ${args.slot}` : ""}`;
+                      } else if (toolName === "markDispensingComplete") {
+                        icon = "✅";
+                        displayText = "Dispensing complete";
+                      } else if (toolName === "listInventory") {
+                        icon = "📋";
+                        displayText = "Checking inventory";
+                      } else if (toolName === "endTransaction") {
+                        icon = "👋";
+                        displayText = "Ending transaction";
+                      } else {
+                        displayText = `Calling ${toolName}`;
+                      }
+                      
+                      return (
+                        <div key={`tool-${m.id}-${index}`} className="flex justify-start mt-2">
+                          <div className="max-w-[80%] rounded-2xl px-4 py-2 bg-gray-700/50 text-gray-300 border border-gray-600/50 italic">
+                            <div className="text-xs leading-relaxed">
+                              {icon} {displayText}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <form
