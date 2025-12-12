@@ -45,10 +45,12 @@ function ClaimInner() {
         if (!res.ok) throw new Error("state fetch failed");
         const data = (await res.json()) as Snapshot;
         if (!stopped) setSnap(data);
+        // Use longer interval when idle, shorter when active
+        const interval = data.state === "IDLE" ? 5000 : 1000;
+        if (!stopped) setTimeout(poll, interval);
       } catch {
-        // ignore
-      } finally {
-        if (!stopped) setTimeout(poll, 1000);
+        // On error, use a longer interval to avoid hammering the server
+        if (!stopped) setTimeout(poll, 5000);
       }
     }
     poll();

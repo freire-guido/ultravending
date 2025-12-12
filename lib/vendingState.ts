@@ -189,7 +189,16 @@ export function resetToIdle(): void {
 export function canSendChat(sessionId: string): { ok: boolean; message?: string } {
   expireIfNeeded();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
-  if (store.state !== "CHATTING") return { ok: false, message: `Cannot chat from ${store.state}` };
+  // Allow chatting from CHATTING and PAYMENT_PENDING states
+  // Users should be able to ask questions even while payment is pending
+  if (store.state !== "CHATTING" && store.state !== "PAYMENT_PENDING") {
+    return { ok: false, message: `Cannot chat from ${store.state}` };
+  }
+  // Only check chat expiration when in CHATTING state
+  // PAYMENT_PENDING has its own expiration timer
+  if (store.state === "CHATTING" && store.chatExpiresAt !== null && Date.now() >= store.chatExpiresAt) {
+    return { ok: false, message: "Chat session expired" };
+  }
   return { ok: true };
 }
 

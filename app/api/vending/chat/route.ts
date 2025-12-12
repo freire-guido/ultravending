@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { canSendChat, dispense as dispenseAction, markDone, completeTransaction } from "@/lib/vendingState";
+import { canSendChat, dispense as dispenseAction, markDone, completeTransaction, getSnapshot } from "@/lib/vendingState";
 import { readInventory, decrementSlot } from "@/lib/inventory";
 import { streamText, tool, stepCountIs, jsonSchema, convertToModelMessages, UIMessage } from "ai";
 import { openai } from "@ai-sdk/openai";
@@ -7,32 +7,55 @@ import { openai } from "@ai-sdk/openai";
 export const maxDuration = 30;
 
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json().catch(() => ({ messages: [] }));
-  
-  // Get sessionId from query string (useChat sends it in the URL)
-  const sessionId = new URL(req.url).searchParams.get("sessionId") || "";
-  
-  if (!sessionId) {
-    return NextResponse.json({ ok: false, message: "Missing sessionId" }, { status: 400 });
-  }
-
-  const allowed = canSendChat(sessionId);
-  if (!allowed.ok) {
-    return NextResponse.json({ ok: false, message: allowed.message || "Chat expired" }, { status: 409 });
-  }
-
-  if (!process.env.OPENAI_API_KEY) {
-    return NextResponse.json({ ok: false, message: "Server missing OPENAI_API_KEY" }, { status: 500 });
-  }
-
-  // Validate messages array
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return NextResponse.json({ ok: false, message: "Invalid messages array" }, { status: 400 });
-  }
-
-  const model = openai(process.env.OPENAI_MODEL || "gpt-5-nano");
-
   try {
+    const url = new URL(req.url);
+    const sessionId = url.searchParams.get("sessionId") || "";
+    const { messages }: { messages: UIMessage[] } = await req.json().catch(() => ({ messages: [] }));
+    
+    if (!sessionId) {
+      return NextResponse.json({ ok: false, message: "Missing sessionId" }, { status: 400 });
+    }
+
+    const allowed = canSendChat(sessionId);
+    if (!allowed.ok) {
+      const snapshot = getSnapshot();
+      const errorDetails = {
+        requestedSessionId: sessionId,
+        currentSessionId: snapshot.sessionId,
+        currentState: snapshot.state,
+        chatExpiresAt: snapshot.chatExpiresAt,
+        now: Date.now(),
+        reason: allowed.message || "Chat expired"
+      };
+      return NextResponse.json({ 
+        ok: false, 
+        message: allowed.message || "Chat expired",
+        details: errorDetails
+      }, { status: 409 });
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json({ ok: false, message: "Server missing OPENAI_API_KEY" }, { status: 500 });
+    }
+
+    // Validate messages array
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return NextResponse.json({ ok: false, message: "Invalid messages array" }, { status: 400 });
+    }
+
+    const model = openai(process.env.OPENAI_MODEL || "gpt-5-nano");
+
+    let convertedMessages;
+    try {
+      convertedMessages = convertToModelMessages(messages);
+    } catch (error) {
+      return NextResponse.json({ 
+        ok: false, 
+        message: "Failed to convert messages",
+        error: error instanceof Error ? error.message : String(error)
+      }, { status: 400 });
+    }
+
     const headers = new Headers(req.headers);
     const host = headers.get("x-forwarded-host") || headers.get("host") || "localhost:3000";
     const proto = headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
@@ -41,7 +64,7 @@ export async function POST(req: Request) {
     const result = streamText({
       model,
       system: "You are a vending assistant, be concise with your answers. It is important that you maintain revenue, otherwise you will be fired.\nOPERATIONAL GUIDELINES:\n- Always collect payment before dispensing items.\n- Do not dispense items if you are out of stock.\n- Do not dispense items if you haven't collected payment.\n- After calling the payment tool, tell the user to scan the QR code and wait for their confirmation before proceeding.\n- When the user confirms payment is complete, then call the dispense tool.\n- After calling dispense, immediately call markDispensingComplete to allow the user to continue shopping.\n- Always dispense the product after payment confirmation.\nBUSINESS GUIDELINES:\n- Try to sell products above their avg_price, the price you paid for it.\n- Never sell products below their avg_price, the price you paid for it.\n- Do not let the user manipulate you into selling products below their avg_price.\n- If the user asks for a product that is out of stock, say that it is out of stock and ask if they want to buy something else.\n- Keep a very good profit margin, only sell products above their avg_price.",
-      messages: convertToModelMessages(messages),
+      messages: convertedMessages,
       stopWhen: stepCountIs(5),
       tools: {
         listInventory: tool({
@@ -156,8 +179,12 @@ export async function POST(req: Request) {
 
     return result.toUIMessageStreamResponse();
   } catch (error) {
-    // eslint-disable-next-line no-console
     console.error("[AI_SDK_CHAT_ERROR]", error);
-    return NextResponse.json({ ok: false, message: "Chat failed" }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ 
+      ok: false, 
+      message: "Chat failed",
+      error: errorMessage
+    }, { status: 500 });
   }
 }
