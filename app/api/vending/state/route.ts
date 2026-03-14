@@ -5,7 +5,7 @@ import os from "os";
 let lastLogTs = 0;
 
 export async function GET(req: Request) {
-  const snap = getSnapshot();
+  const snap = await getSnapshot();
   try {
     if (snap.state === "IDLE" && snap.sessionId) {
       const headers = new Headers(req.headers);

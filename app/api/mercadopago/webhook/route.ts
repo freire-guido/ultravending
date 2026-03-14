@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
       
       if (order.status === "paid") {
         // Order paid - clear payment info and resume chat timer
-        const snapshot = getSnapshot();
+        const snapshot = await getSnapshot();
         console.log("Order paid - checking state match:", {
           orderId: order.id,
           currentState: snapshot.state,
@@ -124,17 +124,17 @@ export async function POST(req: NextRequest) {
         });
         
         if (snapshot.state === "PAYMENT_PENDING" && snapshot.paymentInfo.preferenceId === order.id) {
-          clearPaymentInfo(snapshot.sessionId);
-          transitionToChatting(snapshot.sessionId);
+          await clearPaymentInfo(snapshot.sessionId);
+          await transitionToChatting(snapshot.sessionId);
           console.log("Order paid for session:", snapshot.sessionId);
         } else {
           console.log("Order paid but no matching session found or wrong state");
         }
       } else if (order.status === "cancelled" || order.status === "expired") {
-        const snapshot = getSnapshot();
+        const snapshot = await getSnapshot();
         if (snapshot.state === "PAYMENT_PENDING" && snapshot.paymentInfo.preferenceId === order.id) {
-          clearPaymentInfo(snapshot.sessionId);
-          transitionToChatting(snapshot.sessionId);
+          await clearPaymentInfo(snapshot.sessionId);
+          await transitionToChatting(snapshot.sessionId);
           console.log("Order cancelled/expired for session:", snapshot.sessionId);
         }
       }
@@ -149,17 +149,17 @@ export async function POST(req: NextRequest) {
       console.log("Payment event", payment.id, payment.status);
       
       if (payment.status === "approved") {
-        const snapshot = getSnapshot();
+        const snapshot = await getSnapshot();
         if (snapshot.state === "PAYMENT_PENDING" && snapshot.paymentInfo.preferenceId) {
-          clearPaymentInfo(snapshot.sessionId);
-          transitionToChatting(snapshot.sessionId);
+          await clearPaymentInfo(snapshot.sessionId);
+          await transitionToChatting(snapshot.sessionId);
           console.log("Payment approved for session:", snapshot.sessionId);
         }
       } else if (payment.status === "rejected" || payment.status === "cancelled") {
-        const snapshot = getSnapshot();
+        const snapshot = await getSnapshot();
         if (snapshot.state === "PAYMENT_PENDING" && snapshot.paymentInfo.preferenceId) {
-          clearPaymentInfo(snapshot.sessionId);
-          transitionToChatting(snapshot.sessionId);
+          await clearPaymentInfo(snapshot.sessionId);
+          await transitionToChatting(snapshot.sessionId);
           console.log("Payment failed for session:", snapshot.sessionId);
         }
       }

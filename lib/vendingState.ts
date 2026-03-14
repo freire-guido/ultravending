@@ -1,3 +1,5 @@
+import { Redis } from "@upstash/redis";
+
 export type VendingStateType = "IDLE" | "CHATTING" | "PAYMENT_PENDING" | "DISPENSING" | "DONE";
 
 export interface PaymentInfo {
@@ -22,89 +24,107 @@ export interface VendingSnapshot {
 
 type VendingStore = VendingSnapshot;
 
+const STATE_KEY = "vending:state";
+const PAUSED_KEY = "vending:pausedTime";
+
+const CHAT_TTL_MS = 60_000;
+const PAYMENT_TTL_MS = 60_000;
+const DISPENSING_TTL_MS = 30_000;
+
+function getRedis(): Redis {
+  return new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL!,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+  });
+}
+
 function generateSessionId(): string {
-  // Lightweight random id, we also have uuid in deps if desired
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-const CHAT_TTL_MS = 60_000; // 60 seconds to match client progress bar
-const PAYMENT_TTL_MS = 60_000; // 1 minute
-const DISPENSING_TTL_MS = 30_000; // 30 seconds timeout for dispensing
-
-const store: VendingStore = {
-  state: "IDLE",
-  sessionId: generateSessionId(),
-  lockedByName: null,
-  updatedAt: Date.now(),
-  chatExpiresAt: null,
-  dispensingExpiresAt: null,
-  paymentInfo: {
-    preferenceId: null,
-    qrCodeUrl: null,
-    qrCodeDataUrl: null,
-    amount: null,
-    description: null,
-    createdAt: null,
-    paymentExpiresAt: null,
-  },
-};
-
-function touch(): void {
-  store.updatedAt = Date.now();
+function makeIdleStore(): VendingStore {
+  return {
+    state: "IDLE",
+    sessionId: generateSessionId(),
+    lockedByName: null,
+    updatedAt: Date.now(),
+    chatExpiresAt: null,
+    dispensingExpiresAt: null,
+    paymentInfo: {
+      preferenceId: null,
+      qrCodeUrl: null,
+      qrCodeDataUrl: null,
+      amount: null,
+      description: null,
+      createdAt: null,
+      paymentExpiresAt: null,
+    },
+  };
 }
 
-function expireIfNeeded(): void {
+async function getStore(): Promise<VendingStore> {
+  const redis = getRedis();
+  const raw = await redis.get<VendingStore>(STATE_KEY);
+  if (!raw) {
+    const initial = makeIdleStore();
+    await redis.set(STATE_KEY, initial);
+    return initial;
+  }
+
   const now = Date.now();
-  
-  // Check chat expiration
-  if (store.state === "CHATTING" && store.chatExpiresAt !== null) {
-    if (now >= store.chatExpiresAt) {
-      resetToIdle();
-      return;
-    }
+
+  if (raw.state === "CHATTING" && raw.chatExpiresAt !== null && now >= raw.chatExpiresAt) {
+    const idle = makeIdleStore();
+    await redis.set(STATE_KEY, idle);
+    return idle;
   }
-  
-  // Check payment expiration
-  if (store.state === "PAYMENT_PENDING" && store.paymentInfo.paymentExpiresAt !== null) {
-    if (now >= store.paymentInfo.paymentExpiresAt) {
-      resetToIdle();
-      return;
-    }
+
+  if (
+    raw.state === "PAYMENT_PENDING" &&
+    raw.paymentInfo.paymentExpiresAt !== null &&
+    now >= raw.paymentInfo.paymentExpiresAt
+  ) {
+    const idle = makeIdleStore();
+    await redis.set(STATE_KEY, idle);
+    return idle;
   }
-  
-  // Check dispensing expiration - safety timeout
-  if (store.state === "DISPENSING" && store.dispensingExpiresAt !== null) {
-    if (now >= store.dispensingExpiresAt) {
-      // Auto-return to CHATTING after timeout
-      store.state = "CHATTING";
-      store.dispensingExpiresAt = null;
-      store.chatExpiresAt = Date.now() + CHAT_TTL_MS;
-      touch();
-      return;
-    }
+
+  if (raw.state === "DISPENSING" && raw.dispensingExpiresAt !== null && now >= raw.dispensingExpiresAt) {
+    const updated: VendingStore = {
+      ...raw,
+      state: "CHATTING",
+      dispensingExpiresAt: null,
+      chatExpiresAt: now + CHAT_TTL_MS,
+      updatedAt: now,
+    };
+    await redis.set(STATE_KEY, updated);
+    return updated;
   }
+
+  return raw;
 }
 
-export function getSnapshot(): VendingSnapshot {
-  expireIfNeeded();
-  return { ...store };
+async function saveStore(store: VendingStore): Promise<void> {
+  const redis = getRedis();
+  store.updatedAt = Date.now();
+  await redis.set(STATE_KEY, store);
 }
 
-export function ensureIdleSession(): string {
-  if (store.state !== "IDLE" || !store.sessionId) return store.sessionId;
-  return store.sessionId;
+export async function getSnapshot(): Promise<VendingSnapshot> {
+  return getStore();
 }
 
-export function regenerateSessionIfIdle(): string {
+export async function regenerateSessionIfIdle(): Promise<string> {
+  const store = await getStore();
   if (store.state === "IDLE") {
     store.sessionId = generateSessionId();
-    touch();
+    await saveStore(store);
   }
   return store.sessionId;
 }
 
-export function claim(sessionId: string, userName: string): { ok: boolean; message?: string } {
-  expireIfNeeded();
+export async function claim(sessionId: string, userName: string): Promise<{ ok: boolean; message?: string }> {
+  const store = await getStore();
   if (store.state !== "IDLE") {
     return { ok: false, message: `Machine is busy in state ${store.state}` };
   }
@@ -114,136 +134,118 @@ export function claim(sessionId: string, userName: string): { ok: boolean; messa
   store.state = "CHATTING";
   store.lockedByName = userName;
   store.chatExpiresAt = Date.now() + CHAT_TTL_MS;
-  touch();
+  await saveStore(store);
   return { ok: true };
 }
 
-export function cancel(sessionId: string): { ok: boolean; message?: string } {
-  expireIfNeeded();
+export async function cancel(sessionId: string): Promise<{ ok: boolean; message?: string }> {
+  const store = await getStore();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   if (store.state === "IDLE") return { ok: true };
-  store.state = "IDLE";
-  store.lockedByName = null;
-  store.sessionId = generateSessionId();
-  store.chatExpiresAt = null;
-  touch();
+  const idle = makeIdleStore();
+  await saveStore(idle);
   return { ok: true };
 }
 
-export function dispense(sessionId: string): { ok: boolean; message?: string } {
-  expireIfNeeded();
+export async function dispense(sessionId: string): Promise<{ ok: boolean; message?: string }> {
+  const store = await getStore();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   if (store.state !== "CHATTING") return { ok: false, message: `Cannot dispense from ${store.state}` };
   store.state = "DISPENSING";
   store.dispensingExpiresAt = Date.now() + DISPENSING_TTL_MS;
-  // Placeholder for physical dispense
   console.log("[PLACEHOLDER] Dispensing item for", store.lockedByName);
-  touch();
+  await saveStore(store);
   return { ok: true };
 }
 
-export function completeTransaction(sessionId: string): { ok: boolean; message?: string } {
-  expireIfNeeded();
+export async function completeTransaction(sessionId: string): Promise<{ ok: boolean; message?: string }> {
+  const store = await getStore();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   if (store.state !== "CHATTING" && store.state !== "DONE") {
     return { ok: false, message: `Cannot complete transaction from ${store.state}` };
   }
-  store.state = "DONE";
-  touch();
-  // Auto-transition to IDLE after 2 seconds
-  setTimeout(() => {
-    resetToIdle();
-  }, 2000);
+  const idle = makeIdleStore();
+  await saveStore(idle);
   return { ok: true };
 }
 
-export function markDone(sessionId: string): { ok: boolean; message?: string } {
-  expireIfNeeded();
+export async function markDone(sessionId: string): Promise<{ ok: boolean; message?: string }> {
+  const store = await getStore();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   if (store.state !== "DISPENSING") return { ok: false, message: `Cannot mark done from ${store.state}` };
   store.state = "CHATTING";
   store.dispensingExpiresAt = null;
   store.chatExpiresAt = Date.now() + CHAT_TTL_MS;
-  touch();
+  await saveStore(store);
   return { ok: true };
 }
 
-export function resetToIdle(): void {
-  store.state = "IDLE";
-  store.lockedByName = null;
-  store.sessionId = generateSessionId();
-  store.chatExpiresAt = null;
-  store.dispensingExpiresAt = null;
-  store.paymentInfo = {
-    preferenceId: null,
-    qrCodeUrl: null,
-    qrCodeDataUrl: null,
-    amount: null,
-    description: null,
-    createdAt: null,
-    paymentExpiresAt: null,
-  };
-  touch();
+export async function resetToIdle(): Promise<void> {
+  const idle = makeIdleStore();
+  await saveStore(idle);
 }
 
-export function canSendChat(sessionId: string): { ok: boolean; message?: string } {
-  expireIfNeeded();
+export async function canSendChat(sessionId: string): Promise<{ ok: boolean; message?: string }> {
+  const store = await getStore();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
-  // Allow chatting from CHATTING and PAYMENT_PENDING states
-  // Users should be able to ask questions even while payment is pending
   if (store.state !== "CHATTING" && store.state !== "PAYMENT_PENDING") {
     return { ok: false, message: `Cannot chat from ${store.state}` };
   }
-  // Only check chat expiration when in CHATTING state
-  // PAYMENT_PENDING has its own expiration timer
   if (store.state === "CHATTING" && store.chatExpiresAt !== null && Date.now() >= store.chatExpiresAt) {
     return { ok: false, message: "Chat session expired" };
   }
   return { ok: true };
 }
 
-// Simple timer pause/resume for chat operations
-let pausedTimeRemaining: number | null = null;
-
-export function pauseChatTimer(sessionId: string): { ok: boolean; message?: string } {
+export async function pauseChatTimer(sessionId: string): Promise<{ ok: boolean; message?: string }> {
+  const store = await getStore();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   if (store.state !== "CHATTING") return { ok: false, message: `Cannot pause timer from ${store.state}` };
   if (store.chatExpiresAt !== null) {
-    pausedTimeRemaining = Math.max(0, store.chatExpiresAt - Date.now());
-    store.chatExpiresAt = null; // Pause by setting to null
+    const remaining = Math.max(0, store.chatExpiresAt - Date.now());
+    const redis = getRedis();
+    await redis.set(PAUSED_KEY, remaining);
+    store.chatExpiresAt = null;
+    await saveStore(store);
   }
   return { ok: true };
 }
 
-export function resumeChatTimer(sessionId: string): { ok: boolean; message?: string } {
+export async function resumeChatTimer(sessionId: string): Promise<{ ok: boolean; message?: string }> {
+  const store = await getStore();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   if (store.state !== "CHATTING") return { ok: false, message: `Cannot resume timer from ${store.state}` };
-  if (pausedTimeRemaining !== null) {
-    store.chatExpiresAt = Date.now() + pausedTimeRemaining;
-    pausedTimeRemaining = null;
+  const redis = getRedis();
+  const remaining = await redis.get<number>(PAUSED_KEY);
+  if (remaining !== null) {
+    store.chatExpiresAt = Date.now() + remaining;
+    await redis.del(PAUSED_KEY);
+    await saveStore(store);
   }
   return { ok: true };
 }
 
-export function setPaymentInfo(sessionId: string, paymentInfo: PaymentInfo): { ok: boolean; message?: string } {
+export async function setPaymentInfo(
+  sessionId: string,
+  paymentInfo: PaymentInfo
+): Promise<{ ok: boolean; message?: string }> {
+  const store = await getStore();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   if (store.state !== "CHATTING") return { ok: false, message: `Cannot set payment info from ${store.state}` };
-  
-  store.paymentInfo = { 
-    ...paymentInfo, 
+  store.paymentInfo = {
+    ...paymentInfo,
     createdAt: Date.now(),
-    paymentExpiresAt: Date.now() + PAYMENT_TTL_MS
+    paymentExpiresAt: Date.now() + PAYMENT_TTL_MS,
   };
-  // Clear chat timer when entering payment state (payment has its own timer)
   store.chatExpiresAt = null;
   store.state = "PAYMENT_PENDING";
-  touch();
+  await saveStore(store);
   return { ok: true };
 }
 
-export function clearPaymentInfo(sessionId: string): { ok: boolean; message?: string } {
+export async function clearPaymentInfo(sessionId: string): Promise<{ ok: boolean; message?: string }> {
+  const store = await getStore();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
-  
   store.paymentInfo = {
     preferenceId: null,
     qrCodeUrl: null,
@@ -253,33 +255,25 @@ export function clearPaymentInfo(sessionId: string): { ok: boolean; message?: st
     createdAt: null,
     paymentExpiresAt: null,
   };
-  touch();
+  await saveStore(store);
   return { ok: true };
 }
 
-export function getPaymentInfo(sessionId: string): { ok: boolean; paymentInfo?: PaymentInfo; message?: string } {
+export async function getPaymentInfo(
+  sessionId: string
+): Promise<{ ok: boolean; paymentInfo?: PaymentInfo; message?: string }> {
+  const store = await getStore();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   return { ok: true, paymentInfo: store.paymentInfo };
 }
 
-export function transitionToChatting(sessionId: string): { ok: boolean; message?: string } {
+export async function transitionToChatting(sessionId: string): Promise<{ ok: boolean; message?: string }> {
+  const store = await getStore();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
-  if (store.state !== "PAYMENT_PENDING") return { ok: false, message: `Cannot transition from ${store.state} to CHATTING` };
-  
+  if (store.state !== "PAYMENT_PENDING")
+    return { ok: false, message: `Cannot transition from ${store.state} to CHATTING` };
   store.state = "CHATTING";
-  // Start fresh chat timer from 0
   store.chatExpiresAt = Date.now() + CHAT_TTL_MS;
-  touch();
+  await saveStore(store);
   return { ok: true };
 }
-
-export function resumeChatTimerAfterPayment(sessionId: string): { ok: boolean; message?: string } {
-  if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
-  if (store.state !== "CHATTING") return { ok: false, message: `Cannot resume timer from ${store.state}` };
-  
-  // Resume the chat timer with remaining time
-  resumeChatTimer(sessionId);
-  return { ok: true };
-}
-
-

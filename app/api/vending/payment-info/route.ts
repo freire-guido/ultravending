@@ -12,7 +12,7 @@ export async function GET(req: Request) {
     );
   }
 
-  const result = getPaymentInfo(sessionId);
+  const result = await getPaymentInfo(sessionId);
   
   if (!result.ok) {
     return NextResponse.json(

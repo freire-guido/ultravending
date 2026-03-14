@@ -7,7 +7,7 @@ export async function POST(req: Request) {
   if (!sessionId || !name) {
     return NextResponse.json({ ok: false, message: "Missing sessionId or name" }, { status: 400 });
   }
-  const res = claim(sessionId, name);
+  const res = await claim(sessionId, name);
   return NextResponse.json(res, { status: res.ok ? 200 : 409 });
 }
 

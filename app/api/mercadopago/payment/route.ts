@@ -29,20 +29,20 @@ async function startPaymentPolling(orderId: string, sessionId: string) {
         
         if (order.status === "paid" || order.status === "processed") {
           console.log(`Payment completed for order ${orderId}, session ${sessionId}`);
-          const snapshot = getSnapshot();
-          
+          const snapshot = await getSnapshot();
+
           if (snapshot.sessionId === sessionId && snapshot.state === "PAYMENT_PENDING") {
-            clearPaymentInfo(sessionId);
-            transitionToChatting(sessionId);
+            await clearPaymentInfo(sessionId);
+            await transitionToChatting(sessionId);
           }
           clearInterval(pollInterval);
         } else if (order.status === "cancelled" || order.status === "expired") {
           console.log(`Payment cancelled/expired for order ${orderId}, session ${sessionId}`);
-          const snapshot = getSnapshot();
-          
+          const snapshot = await getSnapshot();
+
           if (snapshot.sessionId === sessionId && snapshot.state === "PAYMENT_PENDING") {
-            clearPaymentInfo(sessionId);
-            transitionToChatting(sessionId);
+            await clearPaymentInfo(sessionId);
+            await transitionToChatting(sessionId);
           }
           clearInterval(pollInterval);
         }
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Verificar que la sesión existe y está en estado correcto
-    const snapshot = getSnapshot();
+    const snapshot = await getSnapshot();
     if (snapshot.sessionId !== sessionId) {
       return NextResponse.json(
         { ok: false, message: "Invalid session" },
@@ -206,7 +206,7 @@ export async function POST(req: NextRequest) {
     };
 
     // Establecer la información de pago y cambiar el estado
-    const result = setPaymentInfo(sessionId, paymentInfo);
+    const result = await setPaymentInfo(sessionId, paymentInfo);
     
     if (!result.ok) {
       return NextResponse.json(
@@ -255,7 +255,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const snapshot = getSnapshot();
+    const snapshot = await getSnapshot();
     if (snapshot.sessionId !== sessionId) {
       return NextResponse.json(
         { ok: false, message: "Invalid session" },

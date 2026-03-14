@@ -7,7 +7,7 @@ export async function POST(req: Request) {
   if (!sessionId) {
     return NextResponse.json({ ok: false, message: "Missing sessionId" }, { status: 400 });
   }
-  const res = cancel(sessionId);
+  const res = await cancel(sessionId);
   return NextResponse.json(res, { status: res.ok ? 200 : 409 });
 }
 

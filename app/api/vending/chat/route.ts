@@ -16,9 +16,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, message: "Missing sessionId" }, { status: 400 });
     }
 
-    const allowed = canSendChat(sessionId);
+    const allowed = await canSendChat(sessionId);
     if (!allowed.ok) {
-      const snapshot = getSnapshot();
+      const snapshot = await getSnapshot();
       const errorDetails = {
         requestedSessionId: sessionId,
         currentSessionId: snapshot.sessionId,
@@ -138,7 +138,7 @@ export async function POST(req: Request) {
             }
 
             console.log(`[DISPENSE_TOOL] Called for session ${sessionId}, product: ${productName}, slot: ${slot}, amount: ${amount}`);
-            const result = dispenseAction(sessionId);
+            const result = await dispenseAction(sessionId);
             if (!result.ok) {
               console.log(`[DISPENSE_TOOL] Failed: ${result.message || "Unable to dispense at this time."}`);
               return result.message || "Unable to dispense at this time.";
@@ -159,7 +159,7 @@ export async function POST(req: Request) {
           description: "Mark the dispensing as complete and return to chat. Call this after dispensing to allow the user to continue shopping.",
           inputSchema: jsonSchema({ type: "object", properties: {}, additionalProperties: false } as const),
           execute: async () => {
-            const result = markDone(sessionId);
+            const result = await markDone(sessionId);
             if (!result.ok) {
               return result.message || "Unable to complete dispensing.";
             }
@@ -170,7 +170,7 @@ export async function POST(req: Request) {
           description: "End the transaction and close the session. Only call this when the user explicitly says they're done or goodbye.",
           inputSchema: jsonSchema({ type: "object", properties: {}, additionalProperties: false } as const),
           execute: async () => {
-            const result = completeTransaction(sessionId);
+            const result = await completeTransaction(sessionId);
             if (!result.ok) {
               return result.message || "Unable to end transaction.";
             }

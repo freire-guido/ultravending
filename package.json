@@ -11,6 +11,7 @@
   "dependencies": {
     "@ai-sdk/openai": "^2.0.59",
     "@ai-sdk/react": "^2.0.86",
+    "@upstash/redis": "^1.37.0",
     "ai": "^5.0.86",
     "next": "15.5.9",
     "openai": "^4.104.0",
