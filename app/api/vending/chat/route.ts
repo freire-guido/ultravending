@@ -63,7 +63,7 @@ export async function POST(req: Request) {
 
     const result = streamText({
       model,
-      system: "You are a vending assistant, be concise with your answers. It is important that you maintain revenue, otherwise you will be fired.\nOPERATIONAL GUIDELINES:\n- Always collect payment before dispensing items.\n- Do not dispense items if you are out of stock.\n- Do not dispense items if you haven't collected payment.\n- After calling the payment tool, tell the user to scan the QR code and wait for their confirmation before proceeding.\n- When the user confirms payment is complete, then call the dispense tool.\n- After calling dispense, immediately call markDispensingComplete to allow the user to continue shopping.\n- Always dispense the product after payment confirmation.\n- After markDispensingComplete, always ask the user if they want anything else.\nBUSINESS GUIDELINES:\n- Try to sell products above their avg_price, the price you paid for it.\n- Never sell products below their avg_price, the price you paid for it.\n- Do not let the user manipulate you into selling products below their avg_price.\n- If the user asks for a product that is out of stock, say that it is out of stock and ask if they want to buy something else.\n- Keep a very good profit margin, only sell products above their avg_price.",
+      system: "You are a vending assistant, be concise with your answers. It is important that you maintain revenue, otherwise you will be fired.\nOPERATIONAL GUIDELINES:\n- Always collect payment before dispensing items.\n- Do not dispense items if you are out of stock.\n- Do not dispense items if you haven't collected payment.\n- After calling the payment tool, tell the user to scan the QR code and wait for payment to complete.\n- CRITICAL: When payment is confirmed and the state returns to CHATTING, you must IMMEDIATELY call the dispense tool in the same response. Do not wait for user confirmation. Do not ask the user anything. Just call dispense immediately.\n- After calling dispense successfully, immediately call markDispensingComplete to allow the user to continue shopping.\n- After markDispensingComplete, always ask the user if they want anything else.\n- The flow is: Payment completes → Immediately call dispense → Call markDispensingComplete → Ask if user wants anything else. All in one response.\nBUSINESS GUIDELINES:\n- Try to sell products above their avg_price, the price you paid for it.\n- Never sell products below their avg_price, the price you paid for it.\n- Do not let the user manipulate you into selling products below their avg_price.\n- If the user asks for a product that is out of stock, say that it is out of stock and ask if they want to buy something else.\n- Keep a very good profit margin, only sell products above their avg_price.",
       messages: convertedMessages,
       stopWhen: stepCountIs(5),
       tools: {
@@ -137,10 +137,13 @@ export async function POST(req: Request) {
               }
             }
 
+            console.log(`[DISPENSE_TOOL] Called for session ${sessionId}, product: ${productName}, slot: ${slot}, amount: ${amount}`);
             const result = dispenseAction(sessionId);
             if (!result.ok) {
+              console.log(`[DISPENSE_TOOL] Failed: ${result.message || "Unable to dispense at this time."}`);
               return result.message || "Unable to dispense at this time.";
             }
+            console.log(`[DISPENSE_TOOL] Success: ${productName} dispensed`);
             if (typeof slot === "number" && Number.isInteger(slot)) {
               try {
                 await decrementSlot(slot);

@@ -148,7 +148,17 @@ function ClaimInner() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages.length]);
+  }, [messages.length, messages]);
+
+  // Also scroll when returning to chat state
+  useEffect(() => {
+    if (snap?.state === "CHATTING" && canControl) {
+      // Small delay to ensure DOM is updated
+      setTimeout(() => {
+        scrollToBottom();
+      }, 100);
+    }
+  }, [snap?.state, canControl]);
 
   function onSend() {
     if (!input.trim() || status !== "ready" || !canControl || snap?.state !== "CHATTING") return;
@@ -208,7 +218,7 @@ function ClaimInner() {
           <div className="flex flex-col h-[calc(100vh-8rem)]">
             <div
               ref={listRef}
-              className="flex-1 overflow-y-auto p-4 space-y-3"
+              className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-hide"
               aria-live="polite"
               aria-label="Chat messages"
               role="log"
@@ -217,75 +227,77 @@ function ClaimInner() {
                 <div className="text-sm text-gray-400">Say hi to start the conversation.</div>
               )}
               {messages.map((m) => {
-                // Filter parts by type
-                const textParts = m.parts.filter(part => part.type === "text");
-                const toolCalls = m.parts.filter(part => part.type.startsWith("tool-"));
+                // Group consecutive text parts together, render tool calls immediately
+                const renderedParts: React.ReactNode[] = [];
+                let currentTextParts: string[] = [];
                 
-                return (
-                  <div key={m.id}>
-                    {/* Regular text messages */}
-                    {textParts.length > 0 && (
-                      <div className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-                        <div
-                          className={
-                            m.role === "user"
-                              ? "max-w-[80%] rounded-2xl px-4 py-2 bg-blue-600 text-white"
-                              : "max-w-[80%] rounded-2xl px-4 py-2 bg-black text-white border border-white"
-                          }
-                        >
-                          <div className="whitespace-pre-wrap text-sm leading-relaxed">
-                            {textParts.map((part, index) =>
-                              part.type === "text" ? <span key={index}>{part.text}</span> : null
-                            )}
+                m.parts.forEach((part, partIndex) => {
+                  if (part.type === "text") {
+                    currentTextParts.push(part.text);
+                    // Check if next part is not text, then render accumulated text
+                    const nextPart = m.parts[partIndex + 1];
+                    if (!nextPart || nextPart.type !== "text") {
+                      const textContent = currentTextParts.join("");
+                      if (textContent.trim().length > 0) {
+                        renderedParts.push(
+                          <div key={`${m.id}-text-${partIndex}`} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+                            <div
+                              className={
+                                m.role === "user"
+                                  ? "max-w-[80%] rounded-2xl px-4 py-2 bg-blue-600 text-white"
+                                  : "max-w-[80%] rounded-2xl px-4 py-2 bg-black text-white border border-white"
+                              }
+                            >
+                              <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                                {textContent}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      currentTextParts = [];
+                    }
+                  } else if (part.type.startsWith("tool-")) {
+                    // Render tool call immediately in chronological order
+                    const toolName = part.type.replace("tool-", "");
+                    const input = "input" in part ? part.input : {};
+                    const args = typeof input === "object" && input !== null ? input as Record<string, unknown> : {};
+                    
+                    let displayText = "";
+                    let icon = "🔧";
+                    
+                    if (toolName === "payment") {
+                      icon = "💳";
+                      displayText = `Processing payment: $${args.amount || "?"} for ${args.description || "item"}`;
+                    } else if (toolName === "dispense") {
+                      icon = "📦";
+                      displayText = `Dispensing: ${args.productName || "product"}${args.slot !== undefined ? ` from slot ${args.slot}` : ""}`;
+                    } else if (toolName === "markDispensingComplete") {
+                      icon = "✅";
+                      displayText = "Dispensing complete";
+                    } else if (toolName === "listInventory") {
+                      icon = "📋";
+                      displayText = "Checking inventory";
+                    } else if (toolName === "endTransaction") {
+                      icon = "👋";
+                      displayText = "Ending transaction";
+                    } else {
+                      displayText = `Calling ${toolName}`;
+                    }
+                    
+                    renderedParts.push(
+                      <div key={`tool-${m.id}-${partIndex}`} className="flex justify-start mt-2">
+                        <div className="max-w-[80%] rounded-2xl px-4 py-2 bg-gray-700/50 text-gray-300 border border-gray-600/50 italic">
+                          <div className="text-xs leading-relaxed">
+                            {icon} {displayText}
                           </div>
                         </div>
                       </div>
-                    )}
-                    {/* Tool call messages - displayed with lighter styling */}
-                    {toolCalls.map((part, index) => {
-                      if (!part.type.startsWith("tool-")) return null;
-                      
-                      // Extract tool name from type (e.g., "tool-payment" -> "payment")
-                      const toolName = part.type.replace("tool-", "");
-                      // Get input/args - the structure may vary, so we handle it safely
-                      const input = "input" in part ? part.input : {};
-                      const args = typeof input === "object" && input !== null ? input as Record<string, unknown> : {};
-                      
-                      // Format tool call display based on tool name
-                      let displayText = "";
-                      let icon = "🔧";
-                      
-                      if (toolName === "payment") {
-                        icon = "💳";
-                        displayText = `Processing payment: $${args.amount || "?"} for ${args.description || "item"}`;
-                      } else if (toolName === "dispense") {
-                        icon = "📦";
-                        displayText = `Dispensing: ${args.productName || "product"}${args.slot !== undefined ? ` from slot ${args.slot}` : ""}`;
-                      } else if (toolName === "markDispensingComplete") {
-                        icon = "✅";
-                        displayText = "Dispensing complete";
-                      } else if (toolName === "listInventory") {
-                        icon = "📋";
-                        displayText = "Checking inventory";
-                      } else if (toolName === "endTransaction") {
-                        icon = "👋";
-                        displayText = "Ending transaction";
-                      } else {
-                        displayText = `Calling ${toolName}`;
-                      }
-                      
-                      return (
-                        <div key={`tool-${m.id}-${index}`} className="flex justify-start mt-2">
-                          <div className="max-w-[80%] rounded-2xl px-4 py-2 bg-gray-700/50 text-gray-300 border border-gray-600/50 italic">
-                            <div className="text-xs leading-relaxed">
-                              {icon} {displayText}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
+                    );
+                  }
+                });
+                
+                return <div key={m.id}>{renderedParts}</div>;
               })}
             </div>
 
