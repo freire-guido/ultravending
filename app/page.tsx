@@ -22,6 +22,7 @@ interface Snapshot {
   updatedAt: number;
   chatExpiresAt?: number | null;
   dispensingExpiresAt?: number | null;
+  timerPaused?: boolean;
   paymentInfo: PaymentInfo;
 }
 
@@ -30,6 +31,8 @@ export default function Home() {
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const lastSessionRef = useRef<string>("");
   const [nowMs, setNowMs] = useState<number>(Date.now());
+  const timerPausedRef = useRef(false);
+  useEffect(() => { timerPausedRef.current = snap?.timerPaused ?? false; }, [snap?.timerPaused]);
 
   useEffect(() => {
     let stopped = false;
@@ -77,7 +80,7 @@ export default function Home() {
     let mounted = true;
     const tick = () => {
       if (!mounted) return;
-      setNowMs(Date.now());
+      if (!timerPausedRef.current) setNowMs(Date.now());
       raf = window.requestAnimationFrame(tick);
     };
     raf = window.requestAnimationFrame(tick);

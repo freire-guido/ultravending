@@ -24,6 +24,7 @@ interface Snapshot {
   updatedAt: number;
   chatExpiresAt: number | null;
   dispensingExpiresAt: number | null;
+  timerPaused: boolean;
   paymentInfo: PaymentInfo;
 }
 
@@ -112,7 +113,7 @@ function ClaimInner() {
       let mounted = true;
       const tick = () => {
         if (!mounted) return;
-        if (statusRef.current === "ready") setNowMs(Date.now());
+        if (statusRef.current === "ready" && !snap.timerPaused) setNowMs(Date.now());
         raf = window.requestAnimationFrame(tick);
       };
       raf = window.requestAnimationFrame(tick);

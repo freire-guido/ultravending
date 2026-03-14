@@ -19,6 +19,7 @@ export interface VendingSnapshot {
   updatedAt: number;
   chatExpiresAt: number | null;
   dispensingExpiresAt: number | null;
+  timerPaused: boolean;
   paymentInfo: PaymentInfo;
 }
 
@@ -47,6 +48,7 @@ function makeIdleStore(): VendingStore {
     updatedAt: Date.now(),
     chatExpiresAt: null,
     dispensingExpiresAt: null,
+    timerPaused: false,
     paymentInfo: {
       preferenceId: null,
       qrCodeUrl: null,
@@ -74,11 +76,15 @@ async function getStore(): Promise<VendingStore> {
     return initial;
   }
 
-  if (raw.state === "CHATTING" && raw.chatExpiresAt !== null && now >= raw.chatExpiresAt) {
-    const idle = makeIdleStore();
-    await redis.set(STATE_KEY, idle);
-    storeCache = { store: idle, ts: now };
-    return idle;
+  if (raw.state === "CHATTING" && raw.chatExpiresAt !== null) {
+    const expired = !raw.timerPaused && now >= raw.chatExpiresAt;
+    const safetyExpired = raw.timerPaused && now >= raw.chatExpiresAt + 60_000;
+    if (expired || safetyExpired) {
+      const idle = makeIdleStore();
+      await redis.set(STATE_KEY, idle);
+      storeCache = { store: idle, ts: now };
+      return idle;
+    }
   }
 
   if (
@@ -203,18 +209,16 @@ export async function canSendChat(sessionId: string): Promise<{ ok: boolean; mes
   return { ok: true };
 }
 
-const MAX_PAUSE_MS = 60_000; // safety cap: session expires in 60s even if resume is never called
-
 export async function pauseChatTimer(sessionId: string): Promise<{ ok: boolean; message?: string }> {
   const store = await getStore();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   if (store.state !== "CHATTING") return { ok: false, message: `Cannot pause timer from ${store.state}` };
-  if (store.chatExpiresAt !== null) {
+  if (!store.timerPaused && store.chatExpiresAt !== null) {
     const remaining = Math.max(0, store.chatExpiresAt - Date.now());
     const redis = getRedis();
     await redis.set(PAUSED_KEY, remaining);
-    // Set a safety deadline so the session doesn't stay paused forever if browser closes
-    store.chatExpiresAt = Date.now() + MAX_PAUSE_MS;
+    store.timerPaused = true;
+    // chatExpiresAt left unchanged — both displays keep showing the correct frozen position
     await saveStore(store);
   }
   return { ok: true };
@@ -224,11 +228,14 @@ export async function resumeChatTimer(sessionId: string): Promise<{ ok: boolean;
   const store = await getStore();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
   if (store.state !== "CHATTING") return { ok: false, message: `Cannot resume timer from ${store.state}` };
-  const redis = getRedis();
-  const remaining = await redis.get<number>(PAUSED_KEY);
-  if (remaining !== null) {
-    store.chatExpiresAt = Date.now() + Math.max(remaining, 5_000);
-    await redis.del(PAUSED_KEY);
+  if (store.timerPaused) {
+    const redis = getRedis();
+    const remaining = await redis.get<number>(PAUSED_KEY);
+    if (remaining !== null) {
+      store.chatExpiresAt = Date.now() + Math.max(remaining, 5_000);
+      await redis.del(PAUSED_KEY);
+    }
+    store.timerPaused = false;
     await saveStore(store);
   }
   return { ok: true };
