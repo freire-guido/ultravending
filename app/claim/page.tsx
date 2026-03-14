@@ -77,6 +77,17 @@ function ClaimInner() {
   
   const [input, setInput] = useState<string>("");
 
+  // Auto-trigger dispense after payment confirmed
+  const prevStateRef = useRef<VendingStateType | null>(null);
+  useEffect(() => {
+    if (!snap || !canControl) return;
+    const prev = prevStateRef.current;
+    prevStateRef.current = snap.state;
+    if (prev === "PAYMENT_PENDING" && snap.state === "CHATTING") {
+      sendMessage({ text: "PAYMENT_CONFIRMED" });
+    }
+  }, [snap?.state, canControl]);
+
   useEffect(() => {
     if (!snap || !canControl) return;
     // Check for chat timer

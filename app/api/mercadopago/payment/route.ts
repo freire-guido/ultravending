@@ -1,65 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import QRCode from "qrcode";
-import { getSnapshot, setPaymentInfo, clearPaymentInfo, transitionToChatting } from "@/lib/vendingState";
+import { getSnapshot, setPaymentInfo } from "@/lib/vendingState";
 
 const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN!;
 
 // Datos de la sucursal y POS creados
 const STORE_ID = process.env.MP_STORE_ID!;
 const POS_ID = process.env.MP_POS_ID!;
-
-// Polling function to check payment status (fallback for when webhooks don't work)
-async function startPaymentPolling(orderId: string, sessionId: string) {
-  const maxAttempts = 20; // Poll for 2 minutes (20 * 6 seconds)
-  let attempts = 0;
-  
-  const pollInterval = setInterval(async () => {
-    attempts++;
-    console.log(`Polling payment status for order ${orderId}, attempt ${attempts}`);
-    
-    try {
-      const response = await fetch(`https://api.mercadopago.com/v1/orders/${orderId}`, {
-        headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
-        cache: "no-store",
-      });
-      
-      if (response.ok) {
-        const order = await response.json();
-        console.log(`Order ${orderId} status:`, order.status);
-        
-        if (order.status === "paid" || order.status === "processed") {
-          console.log(`Payment completed for order ${orderId}, session ${sessionId}`);
-          const snapshot = await getSnapshot();
-
-          if (snapshot.sessionId === sessionId && snapshot.state === "PAYMENT_PENDING") {
-            await clearPaymentInfo(sessionId);
-            await transitionToChatting(sessionId);
-          }
-          clearInterval(pollInterval);
-        } else if (order.status === "cancelled" || order.status === "expired") {
-          console.log(`Payment cancelled/expired for order ${orderId}, session ${sessionId}`);
-          const snapshot = await getSnapshot();
-
-          if (snapshot.sessionId === sessionId && snapshot.state === "PAYMENT_PENDING") {
-            await clearPaymentInfo(sessionId);
-            await transitionToChatting(sessionId);
-          }
-          clearInterval(pollInterval);
-        }
-      }
-      
-      if (attempts >= maxAttempts) {
-        console.log(`Polling timeout for order ${orderId}`);
-        clearInterval(pollInterval);
-      }
-    } catch (error) {
-      console.error(`Polling error for order ${orderId}:`, error);
-      if (attempts >= maxAttempts) {
-        clearInterval(pollInterval);
-      }
-    }
-  }, 6000); // Poll every 6 seconds
-}
 
 interface PaymentRequest {
   amount: number;
@@ -214,9 +161,6 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-
-    // Start polling for payment status (fallback for when webhooks don't work)
-    startPaymentPolling(order.id, sessionId);
 
     return NextResponse.json({
       ok: true,
