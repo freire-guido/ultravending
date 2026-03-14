@@ -1,4 +1,4 @@
-import { Redis } from "@upstash/redis";
+import { getRedis } from "./redis";
 
 export type InventorySlot = {
   description: string;
@@ -22,13 +22,6 @@ const DEFAULT_INVENTORY: Inventory = {
   "8": { description: "agua con gas", avg_unit_price: 100, amount: 0 },
   "9": { description: "agua con gas", avg_unit_price: 100, amount: 0 },
 };
-
-function getRedis(): Redis {
-  return new Redis({
-    url: process.env.KV_REST_API_URL!,
-    token: process.env.KV_REST_API_TOKEN!,
-  });
-}
 
 export async function readInventory(): Promise<Inventory> {
   const redis = getRedis();

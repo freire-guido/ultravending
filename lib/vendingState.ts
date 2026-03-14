@@ -1,4 +1,4 @@
-import { Redis } from "@upstash/redis";
+import { getRedis } from "./redis";
 
 export type VendingStateType = "IDLE" | "CHATTING" | "PAYMENT_PENDING" | "DISPENSING" | "DONE";
 
@@ -27,16 +27,13 @@ type VendingStore = VendingSnapshot;
 const STATE_KEY = "vending:state";
 const PAUSED_KEY = "vending:pausedTime";
 
+// Short-lived read cache to avoid redundant Redis GETs within the same warm lambda
+let storeCache: { store: VendingStore; ts: number } | null = null;
+const CACHE_TTL_MS = 300;
+
 const CHAT_TTL_MS = 60_000;
 const PAYMENT_TTL_MS = 60_000;
 const DISPENSING_TTL_MS = 30_000;
-
-function getRedis(): Redis {
-  return new Redis({
-    url: process.env.KV_REST_API_URL!,
-    token: process.env.KV_REST_API_TOKEN!,
-  });
-}
 
 function generateSessionId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -63,19 +60,24 @@ function makeIdleStore(): VendingStore {
 }
 
 async function getStore(): Promise<VendingStore> {
+  const now = Date.now();
+  if (storeCache && now - storeCache.ts < CACHE_TTL_MS) {
+    return storeCache.store;
+  }
+
   const redis = getRedis();
   const raw = await redis.get<VendingStore>(STATE_KEY);
   if (!raw) {
     const initial = makeIdleStore();
     await redis.set(STATE_KEY, initial);
+    storeCache = { store: initial, ts: Date.now() };
     return initial;
   }
-
-  const now = Date.now();
 
   if (raw.state === "CHATTING" && raw.chatExpiresAt !== null && now >= raw.chatExpiresAt) {
     const idle = makeIdleStore();
     await redis.set(STATE_KEY, idle);
+    storeCache = { store: idle, ts: now };
     return idle;
   }
 
@@ -86,6 +88,7 @@ async function getStore(): Promise<VendingStore> {
   ) {
     const idle = makeIdleStore();
     await redis.set(STATE_KEY, idle);
+    storeCache = { store: idle, ts: now };
     return idle;
   }
 
@@ -98,9 +101,11 @@ async function getStore(): Promise<VendingStore> {
       updatedAt: now,
     };
     await redis.set(STATE_KEY, updated);
+    storeCache = { store: updated, ts: now };
     return updated;
   }
 
+  storeCache = { store: raw, ts: now };
   return raw;
 }
 
@@ -108,6 +113,7 @@ async function saveStore(store: VendingStore): Promise<void> {
   const redis = getRedis();
   store.updatedAt = Date.now();
   await redis.set(STATE_KEY, store);
+  storeCache = { store, ts: store.updatedAt };
 }
 
 export async function getSnapshot(): Promise<VendingSnapshot> {
@@ -220,6 +226,7 @@ export async function resumeChatTimer(sessionId: string): Promise<{ ok: boolean;
   if (remaining !== null) {
     store.chatExpiresAt = Date.now() + remaining;
     await redis.del(PAUSED_KEY);
+
     await saveStore(store);
   }
   return { ok: true };
