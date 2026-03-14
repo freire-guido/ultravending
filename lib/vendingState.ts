@@ -203,6 +203,8 @@ export async function canSendChat(sessionId: string): Promise<{ ok: boolean; mes
   return { ok: true };
 }
 
+const MAX_PAUSE_MS = 60_000; // safety cap: session expires in 60s even if resume is never called
+
 export async function pauseChatTimer(sessionId: string): Promise<{ ok: boolean; message?: string }> {
   const store = await getStore();
   if (sessionId !== store.sessionId) return { ok: false, message: "Wrong session" };
@@ -211,7 +213,8 @@ export async function pauseChatTimer(sessionId: string): Promise<{ ok: boolean; 
     const remaining = Math.max(0, store.chatExpiresAt - Date.now());
     const redis = getRedis();
     await redis.set(PAUSED_KEY, remaining);
-    store.chatExpiresAt = null;
+    // Set a safety deadline so the session doesn't stay paused forever if browser closes
+    store.chatExpiresAt = Date.now() + MAX_PAUSE_MS;
     await saveStore(store);
   }
   return { ok: true };
@@ -224,9 +227,8 @@ export async function resumeChatTimer(sessionId: string): Promise<{ ok: boolean;
   const redis = getRedis();
   const remaining = await redis.get<number>(PAUSED_KEY);
   if (remaining !== null) {
-    store.chatExpiresAt = Date.now() + remaining;
+    store.chatExpiresAt = Date.now() + Math.max(remaining, 5_000);
     await redis.del(PAUSED_KEY);
-
     await saveStore(store);
   }
   return { ok: true };

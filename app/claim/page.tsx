@@ -77,6 +77,22 @@ function ClaimInner() {
   
   const [input, setInput] = useState<string>("");
 
+  // Pause/resume server timer while AI is responding, and freeze visual countdown
+  const statusRef = useRef(status);
+  useEffect(() => { statusRef.current = status; }, [status]);
+
+  const prevStatusRef = useRef(status);
+  useEffect(() => {
+    if (!canControl || snap?.state !== "CHATTING") return;
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = status;
+    if (prev === "ready" && status !== "ready") {
+      fetch(`/api/vending/pause-timer?sessionId=${encodeURIComponent(sessionId)}`, { method: "POST" });
+    } else if (prev !== "ready" && status === "ready") {
+      fetch(`/api/vending/resume-timer?sessionId=${encodeURIComponent(sessionId)}`, { method: "POST" });
+    }
+  }, [status, canControl, snap?.state, sessionId]);
+
   // Auto-trigger dispense after payment confirmed
   const prevStateRef = useRef<VendingStateType | null>(null);
   useEffect(() => {
@@ -96,7 +112,7 @@ function ClaimInner() {
       let mounted = true;
       const tick = () => {
         if (!mounted) return;
-        setNowMs(Date.now());
+        if (statusRef.current === "ready") setNowMs(Date.now());
         raf = window.requestAnimationFrame(tick);
       };
       raf = window.requestAnimationFrame(tick);
